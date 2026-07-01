@@ -365,12 +365,19 @@
           </div>
         </div>
 
-        <div class="card-title" style="margin-top: 16px;">已保存的配置</div>
-        <div v-if="configNames.length === 0" class="empty-state">
-          <div class="icon">📭</div>
-          <p>暂无配置，从预设选择或手动填写后保存</p>
+        <div class="card-title" style="margin-top: 16px;">
+          已保存的配置
+          <span style="margin-left:auto; font-size:12px; color:var(--text-muted);">{{ configNames.length }} 个</span>
         </div>
-        <div v-for="name in configNames" :key="name" class="config-item"
+        <div style="margin-bottom:8px;">
+          <input v-model="configSearch" placeholder="🔍 搜索配置名称..." style="font-size:12px; padding:5px 8px;" />
+        </div>
+        <div v-if="filteredConfigNames.length === 0" class="empty-state">
+          <div class="icon">📭</div>
+          <p v-if="configSearch">没有匹配「{{ configSearch }}」的配置</p>
+          <p v-else>暂无配置，从预设选择或手动填写后保存</p>
+        </div>
+        <div v-for="name in filteredConfigNames" :key="name" class="config-item"
              :class="{ active: selectedConfigName === name }"
              @click="selectConfig(name)">
           <div>
@@ -619,6 +626,8 @@
             <span style="font-size:12px; color:var(--text-muted); margin-left:auto;">
               {{ benchResults.filter(r => r.status === 200).length }} 成功
             </span>
+            <button class="btn btn-sm" @click="downloadJSON(benchResults, 'benchmark-results.json')" title="导出 JSON">📥 JSON</button>
+            <button class="btn btn-sm" @click="downloadCSV(benchResults, 'benchmark-results.csv')" title="导出 CSV（Excel 可直接打开）">📊 CSV</button>
           </div>
           <div class="table-wrap">
             <table>
@@ -707,6 +716,8 @@
             <span style="font-size:12px; color:var(--text-muted); margin-left:auto;">
               {{ burnResults.filter(r => r.status === 200).length }} 成功
             </span>
+            <button class="btn btn-sm" @click="downloadJSON(burnResults, 'burn-results.json')" title="导出 JSON">📥 JSON</button>
+            <button class="btn btn-sm" @click="downloadCSV(burnResults, 'burn-results.csv')" title="导出 CSV（Excel 可直接打开）">📊 CSV</button>
           </div>
           <div class="table-wrap">
             <table>
@@ -839,9 +850,15 @@ createApp({
 
     // Config list
     const configMap = ref({});
+    const configSearch = ref('');
     const configNames = computed(() => {
       const names = configMap.value.names || [];
       return [...names].sort();
+    });
+    const filteredConfigNames = computed(() => {
+      const q = configSearch.value.trim().toLowerCase();
+      if (!q) return configNames.value;
+      return configNames.value.filter(n => n.toLowerCase().includes(q));
     });
 
     // Config editor
@@ -1246,6 +1263,34 @@ createApp({
     function logTime(line) { return line.split(' ')[0] || ''; }
     function logMsg(line) { return line.split(' ').slice(1).join(' ') || ''; }
 
+    // ─── 导出工具 ───
+    function downloadJSON(data, filename) {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function downloadCSV(rows, filename) {
+      if (!rows.length) return;
+      const headers = Object.keys(rows[0]);
+      const lines = rows.map(r => headers.map(h => {
+        const v = r[h];
+        const s = v == null ? '' : String(v);
+        return s.includes(',') || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s;
+      }));
+      const csv = [headers.join(','), ...lines.map(l => l.join(','))].join('\n');
+      const BOM = '\uFEFF'; // BOM 让 Excel 正确识别 UTF-8 中文
+      const blob = new Blob([BOM + csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
     function addLog(msg) {
       const now = new Date();
       const ts = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
@@ -1284,7 +1329,7 @@ createApp({
     });
 
     return {
-      tab, logs, logBody, configMap, configNames,
+      tab, logs, logBody, configMap, configNames, configSearch, filteredConfigNames,
       editName, editConfig, selectedConfigName,
       saveConfig, selectConfig, deleteConfig, applyPreset,
       showImportDialog, importText, importConfigs, exportConfigs,
@@ -1298,6 +1343,7 @@ createApp({
       burnConfigName, burnRounds, burnMaxTokens, burnTimeout,
       burnRunning, burnResults, burnDone, runBurnTest,
       showAPIKey, statusText, statusClass, logClass, logTime, logMsg, clearLogs, addLog,
+      downloadJSON, downloadCSV,
     };
   },
 }).mount('#app');
