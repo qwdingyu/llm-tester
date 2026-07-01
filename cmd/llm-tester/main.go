@@ -540,6 +540,8 @@ func handleBurnTest(c *gin.Context) {
 		if chatResp.Success {
 			successCount++
 			totalTokens += chatResp.TotalTokens
+			result.ContentPreview = chatResp.Content[:min(100, len(chatResp.Content))]
+			result.FinishReason = chatResp.FinishReason
 		} else {
 			result.Status = 500
 			result.Error = chatResp.Error
