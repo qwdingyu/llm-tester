@@ -201,28 +201,39 @@
     }
     .result-label { font-weight: 500; min-width: 120px; }
     .stat-grid {
-      display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      display: grid; grid-template-columns: repeat(5, 1fr);
       gap: 8px;
     }
     .stat-box {
       background: var(--bg); border-radius: var(--radius);
-      padding: 10px 12px; text-align: center;
+      padding: 8px 10px; text-align: center;
     }
-    .stat-box .value { font-size: 18px; font-weight: 600; color: var(--accent); }
+    .stat-box .value { font-size: 16px; font-weight: 600; color: var(--accent); }
     .stat-box .label { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 
     /* ── Config list ── */
     .config-item {
-      display: flex; align-items: center; gap: 8px;
-      padding: 8px 10px; border: 1px solid var(--border);
-      border-radius: var(--radius); margin-bottom: 6px;
-      cursor: pointer; transition: all 0.1s;
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 10px; border: 1px solid var(--border);
+      border-radius: var(--radius); margin-bottom: 4px;
+      cursor: pointer; transition: all 0.1s; min-height: 32px;
     }
     .config-item:hover { border-color: var(--accent); }
     .config-item.active { border-color: var(--accent); background: #eff6ff; }
-    .config-item .name { font-weight: 500; font-size: 13px; }
-    .config-item .detail { font-size: 11px; color: var(--text-muted); }
-    .config-item .actions { margin-left: auto; display: flex; gap: 4px; }
+    .config-item .name { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .config-item .detail { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+    .config-item .actions { margin-left: auto; display: flex; gap: 4px; flex-shrink: 0; }
+
+    /* 配置编辑表单内联显示 */
+    .config-form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 6px 10px;
+      margin-bottom: 6px;
+    }
+    .config-form-grid .span-2 { grid-column: span 2; }
+    .config-form-grid .span-3 { grid-column: span 3; }
+    .config-form-grid .form-group { margin-bottom: 0; }
 
     /* ── Response box ── */
     .response-box {
@@ -281,8 +292,9 @@
     <div class="content-panel">
       <!-- ═══ 配置管理 ═══ -->
       <template v-if="tab === 'config'">
-        <div class="form-row" style="margin-bottom: 12px;">
-          <div class="form-group" style="flex: 2;">
+
+        <div class="config-form-grid">
+          <div class="form-group">
             <label class="form-label">配置名称</label>
             <input v-model="editName" placeholder="输入名称..." />
           </div>
@@ -296,35 +308,26 @@
             </select>
           </div>
           <div class="form-group" style="display:flex; gap:4px; align-items:flex-end;">
-            <label class="form-label" style="width:100%;">&nbsp;</label>
             <button class="btn btn-sm" @click="applyPreset" title="使用预设模板填充">📋 预设</button>
-            <button class="btn btn-sm btn-primary" @click="saveConfig" :disabled="!editName">
-              💾 保存
-            </button>
+            <button class="btn btn-sm btn-primary" @click="saveConfig" :disabled="!editName">💾 保存</button>
           </div>
-        </div>
 
-        <div class="form-row">
           <div class="form-group">
             <label class="form-label">API 地址</label>
-            <input v-model="editConfig.base_url" placeholder="https://api.openai.com/v1" />
+            <input v-model="editConfig.base_url" placeholder="https://api.openai.com" />
           </div>
           <div class="form-group">
             <label class="form-label">API Key</label>
-            <div style="display:flex; gap:4px;">
+            <div style="display:flex; gap:3px;">
               <input :type="showAPIKey ? 'text' : 'password'" v-model="editConfig.api_key" placeholder="sk-..." style="flex:1;" />
-              <button class="btn btn-sm" @click="showAPIKey = !showAPIKey" :title="showAPIKey ? '隐藏' : '显示'">
-                {{ showAPIKey ? '🙈' : '👁️' }}
-              </button>
+              <button class="btn btn-sm" @click="showAPIKey = !showAPIKey">{{ showAPIKey ? '🙈' : '👁️' }}</button>
             </div>
           </div>
           <div class="form-group">
             <label class="form-label">模型</label>
             <input v-model="editConfig.model" placeholder="gpt-4o-mini" />
           </div>
-        </div>
 
-        <div class="form-row">
           <div class="form-group">
             <label class="form-label">温度 (0-2)</label>
             <input v-model.number="editConfig.temperature" type="number" step="0.1" min="0" max="2" />
@@ -337,9 +340,10 @@
             <label class="form-label">超时 (秒)</label>
             <input v-model.number="editConfig.timeout" type="number" min="0" placeholder="0=默认60s" />
           </div>
+
           <div class="form-group">
             <label class="form-label">代理地址</label>
-            <input v-model="editConfig.proxy_url" placeholder="http://127.0.0.1:7890（可选）" />
+            <input v-model="editConfig.proxy_url" placeholder="http://127.0.0.1:7890" />
           </div>
           <div class="form-group">
             <label class="form-label">端点模式</label>
@@ -348,13 +352,11 @@
               <option value="responses">responses</option>
             </select>
           </div>
-        </div>
-
-        <div class="form-row">
           <div class="form-group">
             <label class="form-label">自定义路径</label>
-            <input v-model="editConfig.custom_path" placeholder="custom（仅 custom 类型）" />
+            <input v-model="editConfig.custom_path" placeholder="仅 custom 类型" />
           </div>
+
           <div class="form-group">
             <label class="form-label">HTTP-Referer</label>
             <input v-model="editConfig.http_referer" placeholder="可选" />
@@ -363,9 +365,10 @@
             <label class="form-label">X-Title</label>
             <input v-model="editConfig.x_title" placeholder="可选" />
           </div>
+          <div class="form-group"></div>
         </div>
 
-        <div class="card-title" style="margin-top: 16px;">
+        <div class="card-title" style="margin-top: 12px;">
           已保存的配置
           <span style="margin-left:auto; font-size:12px; color:var(--text-muted);">{{ configNames.length }} 个</span>
         </div>
