@@ -38,7 +38,9 @@ func (p *OpenAIProvider) TestConnection(ctx context.Context) *ConnectionResult {
 		}
 		req.Header.Set("api-key", p.config.APIKey)
 	} else {
-		url = baseURL + "/models"
+		// 连接测试路径：与 /v1/chat/completions 保持一致的 API 版本前缀
+		// 注意：如果 baseURL 已包含 /v1，该路径需要用户自行调整
+		url = baseURL + "/v1/models"
 		req, err = http.NewRequestWithContext(ctx, "GET", url, nil)
 		if err != nil {
 			return &ConnectionResult{

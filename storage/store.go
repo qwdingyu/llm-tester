@@ -216,9 +216,9 @@ type PresetConfig struct {
 // Presets 返回预设模板列表
 func Presets() []PresetConfig {
 	return []PresetConfig{
-		{Name: "OpenAI", APIType: "openai", BaseURL: "https://api.openai.com/v1", Model: "gpt-4o-mini", EndpointMode: "chat_completions"},
-		{Name: "DeepSeek", APIType: "openai", BaseURL: "https://api.deepseek.com/v1", Model: "deepseek-chat", EndpointMode: "chat_completions"},
-		{Name: "Kimi", APIType: "openai", BaseURL: "https://api.moonshot.cn/v1", Model: "moonshot-v1-8k", EndpointMode: "chat_completions"},
+		{Name: "OpenAI", APIType: "openai", BaseURL: "https://api.openai.com", Model: "gpt-4o-mini", EndpointMode: "chat_completions"},
+		{Name: "DeepSeek", APIType: "openai", BaseURL: "https://api.deepseek.com", Model: "deepseek-chat", EndpointMode: "chat_completions"},
+		{Name: "Kimi", APIType: "openai", BaseURL: "https://api.moonshot.cn", Model: "moonshot-v1-8k", EndpointMode: "chat_completions"},
 		{Name: "GLM-4", APIType: "openai", BaseURL: "https://open.bigmodel.cn/api/paas/v4", Model: "glm-4-flash", EndpointMode: "chat_completions"},
 		{Name: "通义千问", APIType: "openai", BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", Model: "qwen-turbo", EndpointMode: "chat_completions"},
 		{Name: "Ollama", APIType: "ollama", BaseURL: "http://localhost:11434", Model: "llama3", EndpointMode: ""},
