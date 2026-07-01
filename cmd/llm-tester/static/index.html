@@ -74,18 +74,18 @@
 
     /* ── Main Content ── */
     .main-content { flex: 1; display: flex; overflow: hidden; }
-    .content-panel { flex: 1; overflow: auto; padding: 16px 20px; }
+    .content-panel { flex: 1; overflow: auto; padding: 12px 16px; display: flex; flex-direction: column; }
 
     /* ── Form Elements ── */
-    .form-group { margin-bottom: 12px; }
+    .form-group { margin-bottom: 8px; }
     .form-label {
       display: block;
       font-size: 12px;
       font-weight: 500;
       color: var(--text-muted);
-      margin-bottom: 4px;
+      margin-bottom: 3px;
     }
-    .form-row { display: flex; gap: 10px; align-items: flex-end; }
+    .form-row { display: flex; gap: 8px; align-items: flex-end; }
     .form-row > * { flex: 1; }
 
     input, select, textarea {
@@ -151,6 +151,15 @@
     }
     .card-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
+    /* 结果卡片：填充剩余空间，表格自动撑满 */
+    .card-result { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+    .card-result .table-wrap { flex: 1; overflow: auto; min-height: 120px; }
+    .card-result table { font-size: 12px; }
+    .card-result td { padding: 6px 8px; }
+    .card-result th { padding: 6px 8px; }
+    .cell-err { color: var(--danger); font-size: 11px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cell-preview { font-size: 11px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
+
     /* ── Table ── */
     .table-wrap { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -164,7 +173,7 @@
 
     /* ── Log Panel ── */
     .log-panel {
-      width: 320px; border-left: 1px solid var(--border);
+      width: 280px; border-left: 1px solid var(--border);
       background: var(--panel); display: flex; flex-direction: column;
       flex-shrink: 0;
     }
@@ -604,21 +613,33 @@
           </div>
         </div>
 
-        <div v-if="benchResults.length > 0" class="card">
-          <div class="card-title">逐轮结果</div>
-          <div class="table-wrap" style="max-height:250px; overflow-y:auto;">
+        <div v-if="benchResults.length > 0" class="card card-result">
+          <div class="card-title">
+            逐轮结果（{{ benchResults.length }} 轮）
+            <span style="font-size:12px; color:var(--text-muted); margin-left:auto;">
+              {{ benchResults.filter(r => r.status === 200).length }} 成功
+            </span>
+          </div>
+          <div class="table-wrap">
             <table>
               <thead><tr>
-                <th>#</th><th>延迟</th><th>Prompt Tokens</th><th>Completion Tokens</th><th>内容预览</th>
+                <th>#</th><th>状态</th><th>延迟</th><th>Prompt Tokens</th><th>Completion</th><th>总 Tokens</th><th>内容预览 / 错误</th>
               </tr></thead>
               <tbody>
                 <tr v-for="r in benchResults" :key="r.req_id">
                   <td>{{ r.req_id + 1 }}</td>
+                  <td>
+                    <span class="badge" :class="r.status === 200 ? 'badge-success' : 'badge-danger'">
+                      {{ r.status === 200 ? 'OK' : 'FAIL' }}
+                    </span>
+                  </td>
                   <td>{{ r.latency_ms?.toFixed(0) }}ms</td>
                   <td>{{ r.prompt_tokens ?? '—' }}</td>
                   <td>{{ r.completion_tokens ?? '—' }}</td>
-                  <td style="font-size:11px; max-width:200px; overflow:hidden; text-overflow:ellipsis;">
-                    {{ r.content_preview || '' }}
+                  <td>{{ r.total_tokens ?? '—' }}</td>
+                  <td>
+                    <span v-if="r.error" class="cell-err" :title="r.error">{{ r.error }}</span>
+                    <span v-else class="cell-preview" :title="r.content_preview">{{ r.content_preview || '—' }}</span>
                   </td>
                 </tr>
               </tbody>
@@ -680,12 +701,23 @@
           </div>
         </div>
 
-        <div v-if="burnResults.length > 0" class="card">
-          <div class="card-title">逐轮结果</div>
-          <div class="table-wrap" style="max-height:250px; overflow-y:auto;">
+        <div v-if="burnResults.length > 0" class="card card-result">
+          <div class="card-title">
+            逐轮结果（{{ burnResults.length }} 轮）
+            <span style="font-size:12px; color:var(--text-muted); margin-left:auto;">
+              {{ burnResults.filter(r => r.status === 200).length }} 成功
+            </span>
+          </div>
+          <div class="table-wrap">
             <table>
               <thead><tr>
-                <th>#</th><th>状态</th><th>延迟</th><th>Completion Tokens</th>
+                <th>#</th>
+                <th>状态</th>
+                <th>延迟</th>
+                <th>Prompt Tokens</th>
+                <th>Completion</th>
+                <th>总 Tokens</th>
+                <th>内容预览 / 错误</th>
               </tr></thead>
               <tbody>
                 <tr v-for="r in burnResults" :key="r.req_id">
@@ -696,7 +728,13 @@
                     </span>
                   </td>
                   <td>{{ r.latency_ms?.toFixed(0) }}ms</td>
+                  <td>{{ r.prompt_tokens ?? '—' }}</td>
                   <td>{{ r.completion_tokens ?? '—' }}</td>
+                  <td>{{ r.total_tokens ?? '—' }}</td>
+                  <td>
+                    <span v-if="r.error" class="cell-err" :title="r.error">{{ r.error }}</span>
+                    <span v-else class="cell-preview" :title="r.content_preview">{{ r.content_preview || '—' }}</span>
+                  </td>
                 </tr>
               </tbody>
             </table>
