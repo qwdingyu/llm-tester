@@ -25,6 +25,7 @@ type Config struct {
 	XTitle        string  `json:"x_title,omitempty"`        // X-Title 头
 	Temperature   float64 `json:"temperature"`              // 温度参数 (0-2)
 	MaxTokens     int     `json:"max_tokens"`               // 最大输出 token 数
+	Timeout       int     `json:"timeout"`                  // HTTP 请求超时（秒），0 表示使用默认值 60s
 }
 
 // configsData 是配置文件的顶层结构

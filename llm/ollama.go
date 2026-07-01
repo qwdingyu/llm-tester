@@ -30,7 +30,7 @@ func (p *OllamaProvider) TestConnection(ctx context.Context) *ConnectionResult {
 		}
 	}
 
-	client := &http.Client{Timeout: defaultTimeout}
+	client := &http.Client{Timeout: p.config.GetTimeout()}
 	resp, err := client.Do(req)
 	if err != nil {
 		return &ConnectionResult{
@@ -107,7 +107,7 @@ func (p *OllamaProvider) Chat(ctx context.Context, req *ChatRequest) *ChatRespon
 
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: defaultTimeout}
+	client := &http.Client{Timeout: p.config.GetTimeout()}
 	resp, err := client.Do(httpReq)
 	latency := time.Since(start).Seconds() * 1000
 

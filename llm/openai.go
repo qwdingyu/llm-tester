@@ -52,7 +52,7 @@ func (p *OpenAIProvider) TestConnection(ctx context.Context) *ConnectionResult {
 	// 设置通用请求头
 	p.setCommonHeaders(req)
 
-	client := &http.Client{Timeout: defaultTimeout}
+	client := &http.Client{Timeout: p.config.GetTimeout()}
 	resp, err := client.Do(req)
 	if err != nil {
 		return &ConnectionResult{
@@ -141,7 +141,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req *ChatRequest) *ChatRespon
 	}
 	p.setCommonHeaders(httpReq)
 
-	client := &http.Client{Timeout: defaultTimeout}
+	client := &http.Client{Timeout: p.config.GetTimeout()}
 	resp, err := client.Do(httpReq)
 	latency := time.Since(start).Seconds() * 1000
 

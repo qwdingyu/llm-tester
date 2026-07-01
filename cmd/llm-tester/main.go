@@ -580,6 +580,7 @@ func toLLMConfig(cfg *storage.Config) *llm.Config {
 		XTitle:       cfg.XTitle,
 		Temperature:  cfg.Temperature,
 		MaxTokens:    cfg.MaxTokens,
+		Timeout:      cfg.Timeout,
 	}
 }
 

@@ -65,6 +65,7 @@ type Config struct {
 	XTitle       string  // X-Title 头
 	Temperature  float64 // 温度参数
 	MaxTokens    int     // 最大输出 token 数
+	Timeout      int     // HTTP 请求超时（秒），0 表示使用默认值 60s
 }
 
 // NewProvider 根据配置创建对应的 Provider 实例
@@ -88,3 +89,11 @@ const defaultTimeout = 60 * time.Second
 
 // userAgent 默认 User-Agent
 const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+
+// GetTimeout 返回配置的有效超时时间，0 表示使用默认值
+func (c *Config) GetTimeout() time.Duration {
+	if c == nil || c.Timeout <= 0 {
+		return defaultTimeout
+	}
+	return time.Duration(c.Timeout) * time.Second
+}

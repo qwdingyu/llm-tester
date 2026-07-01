@@ -54,7 +54,7 @@ func (p *CustomProvider) TestConnection(ctx context.Context) *ConnectionResult {
 	// 设置请求头
 	p.setHeaders(req)
 
-	client := &http.Client{Timeout: defaultTimeout}
+	client := &http.Client{Timeout: p.config.GetTimeout()}
 	resp, err := client.Do(req)
 	if err != nil {
 		return &ConnectionResult{
@@ -105,7 +105,7 @@ func (p *CustomProvider) Chat(ctx context.Context, req *ChatRequest) *ChatRespon
 
 	p.setHeaders(httpReq)
 
-	client := &http.Client{Timeout: defaultTimeout}
+	client := &http.Client{Timeout: p.config.GetTimeout()}
 	resp, err := client.Do(httpReq)
 	latency := time.Since(start).Seconds() * 1000
 

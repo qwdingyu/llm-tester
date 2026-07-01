@@ -230,6 +230,16 @@
     .empty-state .icon { font-size: 32px; margin-bottom: 8px; }
     .empty-state p { font-size: 13px; }
 
+    /* ── Status bar ── */
+    .status-bar {
+      background: var(--panel); border-top: 1px solid var(--border);
+      padding: 5px 16px; font-size: 12px; display: flex; align-items: center;
+      flex-shrink: 0; gap: 8px;
+    }
+    .status-bar .status-ok { color: var(--success); }
+    .status-bar .status-err { color: var(--danger); }
+    .status-bar .status-info { color: var(--text-muted); }
+
     /* ── Responsive ── */
     @media (max-width: 860px) {
       .log-panel { display: none; }
@@ -292,7 +302,12 @@
           </div>
           <div class="form-group">
             <label class="form-label">API Key</label>
-            <input v-model="editConfig.api_key" type="password" placeholder="sk-..." />
+            <div style="display:flex; gap:4px;">
+              <input :type="showAPIKey ? 'text' : 'password'" v-model="editConfig.api_key" placeholder="sk-..." style="flex:1;" />
+              <button class="btn btn-sm" @click="showAPIKey = !showAPIKey" :title="showAPIKey ? '隐藏' : '显示'">
+                {{ showAPIKey ? '🙈' : '👁️' }}
+              </button>
+            </div>
           </div>
           <div class="form-group">
             <label class="form-label">模型</label>
@@ -308,6 +323,10 @@
           <div class="form-group">
             <label class="form-label">Max Tokens</label>
             <input v-model.number="editConfig.max_tokens" type="number" min="1" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">超时 (秒)</label>
+            <input v-model.number="editConfig.timeout" type="number" min="0" placeholder="0=默认60s" />
           </div>
           <div class="form-group">
             <label class="form-label">端点模式</label>
@@ -403,15 +422,24 @@
               <label class="form-label">Max Tokens</label>
               <input v-model.number="chatMaxTokens" type="number" min="1" />
             </div>
+            <div class="form-group">
+              <label class="form-label">超时 (秒)</label>
+              <input v-model.number="chatTimeout" type="number" min="0" placeholder="0=默认" />
+            </div>
           </div>
           <div class="form-group">
             <label class="form-label">消息</label>
-            <textarea v-model="chatMessage" placeholder="输入消息..." rows="3"></textarea>
+            <textarea v-model="chatMessage" placeholder="输入消息..." rows="3"
+                      @keydown.enter.exact.prevent="sendChat"></textarea>
+            <div style="display:flex; gap:6px; margin-top:6px;">
+              <button class="btn btn-primary" @click="sendChat"
+                      :disabled="!chatConfigName || !chatMessage || chatting">
+                {{ chatting ? '发送中...' : '发送 (⏎)' }}
+              </button>
+              <button class="btn btn-sm" @click="chatMessage = ''">清空消息</button>
+              <button class="btn btn-sm" @click="chatResponse = null">清空结果</button>
+            </div>
           </div>
-          <button class="btn btn-primary" @click="sendChat"
-                  :disabled="!chatConfigName || !chatMessage || chatting">
-            {{ chatting ? '发送中...' : '发送' }}
-          </button>
         </div>
 
         <div v-if="chatResponse" class="card">
@@ -515,6 +543,10 @@
               <label class="form-label">Max Tokens</label>
               <input v-model.number="benchMaxTokens" type="number" min="1" />
             </div>
+            <div class="form-group">
+              <label class="form-label">超时 (秒)</label>
+              <input v-model.number="benchTimeout" type="number" min="0" placeholder="0=默认" />
+            </div>
           </div>
           <div class="form-group">
             <label class="form-label">测试提示词</label>
@@ -611,6 +643,10 @@
               <label class="form-label">Max Tokens</label>
               <input v-model.number="burnMaxTokens" type="number" min="1" />
             </div>
+            <div class="form-group">
+              <label class="form-label">超时 (秒)</label>
+              <input v-model.number="burnTimeout" type="number" min="0" placeholder="0=默认" />
+            </div>
           </div>
           <button class="btn btn-danger" @click="runBurnTest"
                   :disabled="!burnConfigName || burnRunning">
@@ -683,6 +719,15 @@
     </div>
   </div>
 
+  <!-- ─── Status Bar ─── -->
+  <div class="status-bar">
+    <span v-if="statusText" :class="statusClass">{{ statusText }}</span>
+    <span v-else style="color:var(--text-muted);">就绪</span>
+    <span style="margin-left:auto; font-size:11px; color:var(--text-muted);">
+      配置: {{ configNames.length }} 个
+    </span>
+  </div>
+
   <!-- ─── Import Dialog ─── -->
   <div v-if="showImportDialog" style="position:fixed; inset:0; background:rgba(0,0,0,0.3);
        display:flex; align-items:center; justify-content:center; z-index:200;">
@@ -740,6 +785,14 @@ createApp({
     const logBody = ref(null);
     let logTimer = null;
 
+    // Status bar
+    const statusText = ref('');
+    const statusType = ref('info'); // 'info' | 'ok' | 'err'
+    const statusClass = computed(() => 'status-' + statusType.value);
+
+    // API Key show/hide
+    const showAPIKey = ref(false);
+
     // Config list
     const configMap = ref({});
     const configNames = computed(() => {
@@ -762,6 +815,7 @@ createApp({
     const chatMessage = ref('');
     const chatTemperature = ref(0.7);
     const chatMaxTokens = ref(1024);
+    const chatTimeout = ref(0);
     const chatting = ref(false);
     const chatResponse = ref(null);
 
@@ -778,7 +832,8 @@ createApp({
     const benchRounds = ref(10);
     const benchConcurrency = ref(5);
     const benchMaxTokens = ref(1024);
-    const benchPrompt = ref('请用一句话回复：中国的首都是什么？');
+    const benchPrompt = ref('请用一句话介绍人工智能。');
+    const benchTimeout = ref(0);
     const benchRunning = ref(false);
     const benchResults = ref([]);
     const benchReport = ref(null);
@@ -787,6 +842,7 @@ createApp({
     const burnConfigName = ref('');
     const burnRounds = ref(20);
     const burnMaxTokens = ref(512);
+    const burnTimeout = ref(0);
     const burnRunning = ref(false);
     const burnResults = ref([]);
     const burnDone = ref(null);
@@ -798,6 +854,8 @@ createApp({
     // ─── Load Configs ───
     async function loadConfigs() {
       configMap.value = await API.get('/api/configs');
+      statusText.value = `⚙️ 已加载 ${configMap.value.names?.length || 0} 个配置`;
+      statusType.value = 'info';
     }
 
     // ─── Save Config ───
@@ -808,9 +866,13 @@ createApp({
       };
       const result = await API.post('/api/configs', cfg);
       if (result.success) {
+        statusText.value = `💾 已保存配置: ${editName.value}`;
+        statusType.value = 'ok';
         addLog(result.message);
         await loadConfigs();
       } else {
+        statusText.value = `❌ 保存失败: ${result.error || '未知错误'}`;
+        statusType.value = 'err';
         addLog('❌ 保存失败: ' + (result.error || '未知错误'));
       }
     }
@@ -912,14 +974,25 @@ createApp({
       if (!cfg) return;
       connecting.value = true;
       connectionResult.value = null;
+      statusText.value = `🔗 测试连接 [${name}]...`;
+      statusType.value = 'info';
       try {
         const result = await API.post('/api/test/connection', { config: cfg });
         connectionResult.value = result;
+        if (result.success) {
+          statusText.value = `✅ [${name}] 连接成功`;
+          statusType.value = 'ok';
+        } else {
+          statusText.value = `❌ [${name}] 连接失败: ${result.message}`;
+          statusType.value = 'err';
+        }
         addLog(result.success
           ? `✅ [${name}] 连接成功`
           : `❌ [${name}] 连接失败: ${result.message}`);
       } catch (e) {
         connectionResult.value = { success: false, message: e.message };
+        statusText.value = `❌ [${name}] 连接异常: ${e.message}`;
+        statusType.value = 'err';
         addLog(`❌ [${name}] 连接异常: ${e.message}`);
       } finally {
         connecting.value = false;
@@ -933,19 +1006,30 @@ createApp({
       if (!cfg) return;
       chatting.value = true;
       chatResponse.value = null;
+      statusText.value = '💬 发送消息中...';
+      statusType.value = 'info';
       try {
         const result = await API.post('/api/test/chat', {
-          config: cfg,
+          config: { ...cfg, timeout: chatTimeout.value || cfg.timeout || 0 },
           message: chatMessage.value,
           max_tokens: chatMaxTokens.value || 1024,
           temperature: chatTemperature.value ?? 0.7,
         });
         chatResponse.value = result;
+        if (result.success) {
+          statusText.value = `✅ [${name}] 回复 ${result.total_tokens || 0} tokens, ${(result.latency_ms || 0).toFixed(0)}ms`;
+          statusType.value = 'ok';
+        } else {
+          statusText.value = `❌ [${name}] ${result.error}`;
+          statusType.value = 'err';
+        }
         addLog(result.success
           ? `💬 [${name}] 回复 ${result.total_tokens || 0} tokens, ${(result.latency_ms || 0).toFixed(0)}ms`
           : `💬 [${name}] 失败: ${result.error}`);
       } catch (e) {
         chatResponse.value = { success: false, error: e.message };
+        statusText.value = `❌ [${name}] ${e.message}`;
+        statusType.value = 'err';
         addLog(`💬 [${name}] 异常: ${e.message}`);
       } finally {
         chatting.value = false;
@@ -1011,13 +1095,15 @@ createApp({
       benchRunning.value = true;
       benchResults.value = [];
       benchReport.value = null;
+      statusText.value = `📈 基准测试 [${name}]...`;
+      statusType.value = 'info';
 
       try {
         const r = await fetch('/api/test/benchmark', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            config: cfg,
+            config: { ...cfg, timeout: benchTimeout.value || cfg.timeout || 0 },
             concurrency: benchConcurrency.value || 5,
             max_tokens: benchMaxTokens.value || 1024,
             prompt: benchPrompt.value,
@@ -1039,6 +1125,8 @@ createApp({
             const data = JSON.parse(line.slice(6));
             if (data.type === 'report') {
               benchReport.value = data;
+              statusText.value = `📊 基准测试: ${data.success}/${data.total} 成功, 平均 ${data.lat_avg?.toFixed(0)}ms`;
+              statusType.value = 'ok';
               addLog(`📊 基准测试: ${data.success}/${data.total} 成功, 平均 ${data.lat_avg?.toFixed(0)}ms`);
             } else if (data.req_id !== undefined) {
               benchResults.value.push(data);
@@ -1060,13 +1148,15 @@ createApp({
       burnRunning.value = true;
       burnResults.value = [];
       burnDone.value = null;
+      statusText.value = `🔥 压力测试 [${name}]...`;
+      statusType.value = 'info';
 
       try {
         const r = await fetch('/api/test/burn', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            config: cfg,
+            config: { ...cfg, timeout: burnTimeout.value || cfg.timeout || 0 },
             rounds: burnRounds.value || 20,
             max_tokens: burnMaxTokens.value || 512,
           }),
@@ -1086,6 +1176,8 @@ createApp({
             const data = JSON.parse(line.slice(6));
             if (data.type === 'done') {
               burnDone.value = data;
+              statusText.value = `🔥 压力测试完成: ${data.success}/${data.total_rounds} 成功, ${data.total_tokens} tokens`;
+              statusType.value = 'ok';
               addLog(`🔥 压力测试完成: ${data.success}/${data.total_rounds} 成功, ${data.total_tokens} tokens`);
             } else if (data.req_id !== undefined) {
               burnResults.value.push(data);
@@ -1151,15 +1243,15 @@ createApp({
       saveConfig, selectConfig, deleteConfig, applyPreset,
       showImportDialog, importText, importConfigs, exportConfigs,
       connectConfigName, connecting, connectionResult, testConnection,
-      chatConfigName, chatMessage, chatTemperature, chatMaxTokens,
+      chatConfigName, chatMessage, chatTemperature, chatMaxTokens, chatTimeout,
       chatting, chatResponse, sendChat,
       batchConfigs, batchMessage, batchRunning, batchResults,
       batchSuccess, batchFail, runBatchTest, toggleBatchConfig,
       benchConfigName, benchRounds, benchConcurrency, benchMaxTokens,
-      benchPrompt, benchRunning, benchResults, benchReport, runBenchmark,
-      burnConfigName, burnRounds, burnMaxTokens,
+      benchPrompt, benchTimeout, benchRunning, benchResults, benchReport, runBenchmark,
+      burnConfigName, burnRounds, burnMaxTokens, burnTimeout,
       burnRunning, burnResults, burnDone, runBurnTest,
-      logClass, logTime, logMsg, clearLogs, addLog,
+      showAPIKey, statusText, statusClass, logClass, logTime, logMsg, clearLogs, addLog,
     };
   },
 }).mount('#app');
