@@ -1,0 +1,7 @@
+# 构建产物
+/llm-tester
+/llm-tester.exe
+/dist/
+
+# 配置数据
+/.llm_tester/
