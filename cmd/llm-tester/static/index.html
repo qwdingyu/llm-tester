@@ -405,6 +405,7 @@
             <div class="detail">{{ configMap[name]?.api_type }} · {{ configMap[name]?.model || '—' }}</div>
           </div>
           <div class="actions">
+            <button class="btn btn-sm" @click.stop="cloneConfig(name)">📋</button>
             <button class="btn btn-sm btn-danger" @click.stop="deleteConfig(name)">🗑️</button>
           </div>
         </div>
@@ -471,31 +472,36 @@
             <label class="form-label">消息</label>
             <textarea v-model="chatMessage" placeholder="输入消息..." rows="3"
                       @keydown.enter.exact.prevent="sendChat"></textarea>
-            <div style="display:flex; gap:6px; margin-top:6px;">
-              <button class="btn btn-primary" @click="sendChat"
+            <div style="display:flex; gap:6px; margin-top:6px; align-items:center;">
+              <button class="btn btn-primary" @click="sendChatStream"
                       :disabled="!chatConfigName || !chatMessage || chatting">
-                {{ chatting ? '发送中...' : '发送 (⏎)' }}
+                {{ chatting ? '发送中...' : '🚀 发送 (⏎)' }}
               </button>
+              <label style="font-size:12px; display:flex; align-items:center; gap:3px; cursor:pointer; color:var(--text-muted);">
+                <input type="checkbox" v-model="chatStreamMode" style="width:auto;" />
+                流式输出
+              </label>
               <button class="btn btn-sm" @click="chatMessage = ''">清空消息</button>
-              <button class="btn btn-sm" @click="chatResponse = null">清空结果</button>
+              <button class="btn btn-sm" @click="chatResponse = null; chatStreamingContent = ''">清空结果</button>
             </div>
           </div>
         </div>
 
-        <div v-if="chatResponse" class="card">
+        <div v-if="chatResponse || chatStreamingContent" class="card">
           <div class="card-title">
-            <span v-if="chatResponse.success" class="badge badge-success">✅ 成功</span>
-            <span v-else class="badge badge-danger">❌ 失败</span>
+            <span v-if="chatStreamingContent && !chatResponse" class="badge badge-info">⏳ 流式响应中...</span>
+            <span v-else-if="chatResponse?.success" class="badge badge-success">✅ 成功</span>
+            <span v-else-if="chatResponse?.error" class="badge badge-danger">❌ 失败</span>
             <span style="font-size:12px; color:var(--text-muted); margin-left:auto;">
-              {{ chatResponse.latency_ms?.toFixed(0) }}ms ·
-              {{ chatResponse.total_tokens || 0 }} tokens
+              {{ chatResponse?.latency_ms?.toFixed(0) || '' }}ms ·
+              {{ chatResponse?.total_tokens || 0 }} tokens
             </span>
           </div>
-          <div v-if="chatResponse.error" class="response-box" style="margin-bottom:8px;">
+          <div v-if="chatResponse?.error" class="response-box" style="margin-bottom:8px;">
             <span class="err">{{ chatResponse.error }}</span>
           </div>
-          <div class="response-box" v-if="chatResponse.content">{{ chatResponse.content }}</div>
-          <div style="display:flex; gap:12px; margin-top:8px; font-size:12px; color:var(--text-muted);">
+          <div class="response-box">{{ chatStreamingContent || chatResponse?.content || '' }}</div>
+          <div v-if="chatResponse" style="display:flex; gap:12px; margin-top:8px; font-size:12px; color:var(--text-muted);">
             <span>Prompt: {{ chatResponse.prompt_tokens ?? '—' }}</span>
             <span>Completion: {{ chatResponse.completion_tokens ?? '—' }}</span>
             <span>Finish: {{ chatResponse.finish_reason || '—' }}</span>
@@ -897,6 +903,8 @@ createApp({
     const chatTemperature = ref(0.7);
     const chatMaxTokens = ref(1024);
     const chatTimeout = ref(0);
+    const chatStreamMode = ref(false);
+    const chatStreamingContent = ref('');
     const chatting = ref(false);
     const chatResponse = ref(null);
 
@@ -996,6 +1004,31 @@ createApp({
       }
     }
 
+    // ─── Clone Config ───
+    function cloneConfig(name) {
+      const cfg = configMap.value.configs?.[name];
+      if (!cfg) return;
+      // 填充编辑表单，名称加 "-副本" 后缀，不清除原有编辑内容
+      editName.value = name + '-副本';
+      Object.assign(editConfig, {
+        api_type: cfg.api_type || 'openai',
+        base_url: cfg.base_url || '',
+        api_key: cfg.api_key || '',
+        model: cfg.model || '',
+        custom_path: cfg.custom_path || '',
+        endpoint_mode: cfg.endpoint_mode || 'chat_completions',
+        http_referer: cfg.http_referer || '',
+        x_title: cfg.x_title || '',
+        temperature: cfg.temperature ?? 0.7,
+        max_tokens: cfg.max_tokens || 1024,
+        timeout: cfg.timeout || 0,
+        proxy_url: cfg.proxy_url || '',
+      });
+      tab.value = 'config';
+      statusText.value = `📋 已克隆「${name}」，可修改后保存`;
+      statusType.value = 'info';
+    }
+
     // ─── Preset ───
     async function applyPreset() {
       const data = await API.get('/api/configs/presets');
@@ -1083,10 +1116,96 @@ createApp({
     }
 
     // ─── Chat ───
+    // ─── Stream Chat (SSE 流式打字机) ───
+    async function sendChatStream() {
+      const name = chatConfigName.value;
+      const cfg = configMap.value.configs?.[name];
+      if (!cfg) return;
+
+      chatting.value = true;
+      chatStreamingContent.value = '';
+      chatResponse.value = null;
+      statusText.value = '💬 流式发送中...';
+      statusType.value = 'info';
+
+      try {
+        const r = await fetch('/api/test/chat/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            config: { ...cfg, timeout: chatTimeout.value || cfg.timeout || 0 },
+            message: chatMessage.value,
+            max_tokens: chatMaxTokens.value || 1024,
+            temperature: chatTemperature.value ?? 0.7,
+          }),
+        });
+
+        const reader = r.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split('\n');
+          buf = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const data = JSON.parse(line.slice(6));
+
+            if (data.type === 'token') {
+              // 逐 token 更新内容，实现打字机效果
+              chatStreamingContent.value = data.full;
+            } else if (data.type === 'done') {
+              chatResponse.value = {
+                success: !data.error,
+                content: data.content,
+                finish_reason: data.finish_reason,
+                latency_ms: data.latency_ms,
+                prompt_tokens: data.prompt_tokens,
+                completion_tokens: data.completion_tokens,
+                total_tokens: data.total_tokens,
+                error: data.error,
+              };
+              statusText.value = data.error
+                ? `❌ [${name}] ${data.error}`
+                : `✅ [${name}] ${data.total_tokens || 0} tokens, ${(data.latency_ms || 0).toFixed(0)}ms`;
+              statusType.value = data.error ? 'err' : 'ok';
+              addLog(data.error
+                ? `💬 [${name}] 失败: ${data.error}`
+                : `💬 [${name}] 回复 ${data.total_tokens || 0} tokens, ${(data.latency_ms || 0).toFixed(0)}ms`);
+            } else if (data.type === 'error') {
+              chatResponse.value = { success: false, error: data.content };
+              statusText.value = `❌ [${name}] ${data.content}`;
+              statusType.value = 'err';
+              addLog(`💬 [${name}] 失败: ${data.content}`);
+            }
+          }
+        }
+      } catch (e) {
+        chatResponse.value = { success: false, error: e.message };
+        statusText.value = `❌ [${name}] ${e.message}`;
+        statusType.value = 'err';
+        addLog(`💬 [${name}] 异常: ${e.message}`);
+      } finally {
+        chatting.value = false;
+      }
+    }
+
     async function sendChat() {
       const name = chatConfigName.value;
       const cfg = configMap.value.configs?.[name];
       if (!cfg) return;
+
+      if (chatStreamMode.value) {
+        // 流式模式
+        await sendChatStream();
+        return;
+      }
+
+      // 非流式模式（原有逻辑）
       chatting.value = true;
       chatResponse.value = null;
       statusText.value = '💬 发送消息中...';
@@ -1366,10 +1485,11 @@ createApp({
       tab, logs, logBody, configMap, configNames, configSearch, filteredConfigNames,
       isDark, toggleTheme,
       editName, editConfig, selectedConfigName,
-      saveConfig, selectConfig, deleteConfig, applyPreset,
+      saveConfig, selectConfig, deleteConfig, cloneConfig, applyPreset,
       showImportDialog, importText, importConfigs, exportConfigs,
       connectConfigName, connecting, connectionResult, testConnection,
       chatConfigName, chatMessage, chatTemperature, chatMaxTokens, chatTimeout,
+      chatStreamMode, chatStreamingContent, sendChatStream,
       chatting, chatResponse, sendChat,
       batchConfigs, batchMessage, batchRunning, batchResults,
       batchSuccess, batchFail, runBatchTest, toggleBatchConfig,

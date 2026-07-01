@@ -16,6 +16,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -98,6 +100,7 @@ func main() {
 	// 测试 API
 	r.POST("/api/test/connection", handleTestConnection)
 	r.POST("/api/test/chat", handleChat)
+	r.POST("/api/test/chat/stream", handleChatStream)
 	r.POST("/api/test/batch", handleBatchTest)
 	r.POST("/api/test/benchmark", handleBenchmark)
 	r.POST("/api/test/burn", handleBurnTest)
@@ -255,6 +258,171 @@ func handleChat(c *gin.Context) {
 		"total_tokens":    result.TotalTokens,
 		"error":           result.Error,
 	})
+}
+
+// handleChatStream 流式聊天测试（SSE 打字机效果）
+// 发送 stream=true 到 LLM API，逐 token 解析 SSE 并转发到前端
+func handleChatStream(c *gin.Context) {
+	var req struct {
+		Config      storage.Config `json:"config"`
+		Message     string         `json:"message"`
+		MaxTokens   int            `json:"max_tokens"`
+		Temperature float64        `json:"temperature"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求数据"})
+		return
+	}
+	if req.Message == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "消息不能为空"})
+		return
+	}
+
+	// 设置 SSE 头
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.WriteHeader(http.StatusOK)
+
+	provider := llm.NewProvider(toLLMConfig(&req.Config))
+	start := time.Now()
+
+	// 构造流式请求体
+	bodyMap := llm.BuildChatBody(req.Config.Model, req.Message, req.Temperature, req.MaxTokens)
+	bodyMap["stream"] = true // 覆盖为流式
+	bodyBytes, _ := json.Marshal(bodyMap)
+
+	openAIProvider, ok := provider.(*llm.OpenAIProvider)
+	if !ok {
+		// 非 OpenAI 兼容 API 回退到非流式
+		fallback := provider.Chat(c.Request.Context(), &llm.ChatRequest{
+			Message: req.Message, MaxTokens: req.MaxTokens, Temperature: req.Temperature})
+		jsonData, _ := json.Marshal(map[string]interface{}{
+			"type": "done", "content": fallback.Content,
+			"finish_reason": fallback.FinishReason, "latency_ms": fallback.LatencyMs,
+			"prompt_tokens": fallback.PromptTokens, "completion_tokens": fallback.CompletionToks,
+			"total_tokens": fallback.TotalTokens, "error": fallback.Error,
+		})
+		fmt.Fprintf(c.Writer, "data: %s\n\n", jsonData)
+		c.Writer.Flush()
+		return
+	}
+
+	_ = openAIProvider // 我们直接构造请求，不调用 OpenAIProvider.Chat
+	_ = time.Since(start)
+
+	// 直接发送流式请求到 LLM API
+	baseURL := strings.TrimRight(req.Config.BaseURL, "/")
+	fullURL := baseURL + "/v1/chat/completions"
+
+	httpReq, _ := http.NewRequestWithContext(c.Request.Context(), "POST", fullURL, bytes.NewReader(bodyBytes))
+	httpReq.Header.Set("Content-Type", "application/json")
+	if req.Config.APIKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+req.Config.APIKey)
+	}
+	httpReq.Header.Set("Accept", "text/event-stream")
+	httpReq.Header.Set("User-Agent", "Mozilla/5.0")
+
+	// 直接用默认 http client，不走 GetHTTPClient 的 Transport 封装
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		fmt.Fprintf(c.Writer, "data: {\"type\":\"error\",\"content\":\"%s\"}\n\n", err.Error())
+		c.Writer.Flush()
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		fmt.Fprintf(c.Writer, "data: {\"type\":\"error\",\"content\":\"HTTP %d: %s\"}\n\n", resp.StatusCode, string(body))
+		c.Writer.Flush()
+		return
+	}
+
+	// 逐行解析 SSE 流
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 64*1024)
+	fullContent := ""
+	finishReason := ""
+	promptTokens := 0
+	completionTokens := 0
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// SSE 格式: data: {...}
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		payload := strings.TrimPrefix(line, "data: ")
+
+		// SSE 结束标记
+		if payload == "[DONE]" {
+			break
+		}
+
+		// 解析 JSON
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+				FinishReason string `json:"finish_reason"`
+			} `json:"choices"`
+			Usage *struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+				TotalTokens      int `json:"total_tokens"`
+			} `json:"usage"`
+		}
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			continue
+		}
+
+		if len(chunk.Choices) > 0 {
+			token := chunk.Choices[0].Delta.Content
+			fullContent += token
+
+			if chunk.Choices[0].FinishReason != "" {
+				finishReason = chunk.Choices[0].FinishReason
+			}
+
+			// 向前端推送每个 token
+			if token != "" {
+				jsonData, _ := json.Marshal(map[string]interface{}{
+					"type":    "token",
+					"content": token,
+					"full":    fullContent,
+				})
+				fmt.Fprintf(c.Writer, "data: %s\n\n", jsonData)
+				c.Writer.Flush()
+			}
+		}
+
+		// usage 信息通常在最后一个 chunk 中
+		if chunk.Usage != nil {
+			promptTokens = chunk.Usage.PromptTokens
+			completionTokens = chunk.Usage.CompletionTokens
+		}
+	}
+
+	latency := time.Since(start).Seconds() * 1000
+
+	// 推送完成事件
+	doneData, _ := json.Marshal(map[string]interface{}{
+		"type":             "done",
+		"content":          fullContent,
+		"finish_reason":    finishReason,
+		"latency_ms":       latency,
+		"prompt_tokens":    promptTokens,
+		"completion_tokens": completionTokens,
+		"total_tokens":     promptTokens + completionTokens,
+	})
+	fmt.Fprintf(c.Writer, "data: %s\n\n", doneData)
+	c.Writer.Flush()
+
+	addLog("💬 流式 [%s] %d tokens, %.0fms", req.Config.Name, promptTokens+completionTokens, latency)
 }
 
 // handleBatchTest 批量测试
