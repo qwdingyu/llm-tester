@@ -4,9 +4,14 @@ package llm
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
+
+	"github.com/user/llm-tester/errors"
 )
 
 // EndpointMode 端点模式枚举
@@ -123,4 +128,78 @@ func (c *Config) GetHTTPClient() *http.Client {
 		Timeout:   c.GetTimeout(),
 		Transport: transport,
 	}
+}
+
+// ─── 共享请求体构建 ────────────────────────────────
+
+// BuildChatBody 构造标准聊天请求体（所有 Provider 共用）
+// stream=false 防止 API 默认返回 SSE 流式响应导致 io.ReadAll 永久阻塞
+func BuildChatBody(model, message string, temperature float64, maxTokens int) map[string]interface{} {
+	return map[string]interface{}{
+		"model": model,
+		"messages": []map[string]string{
+			{"role": "user", "content": message},
+		},
+		"temperature": temperature,
+		"max_tokens":  maxTokens,
+		"stream":      false,
+	}
+}
+
+// BuildTestBody 构造连接测试请求体
+func BuildTestBody(model string) map[string]interface{} {
+	if model == "" {
+		model = "gpt-4o-mini"
+	}
+	return map[string]interface{}{
+		"model": model,
+		"messages": []map[string]string{
+			{"role": "user", "content": "ping"},
+		},
+		"max_tokens": 1,
+		"stream":     false,
+	}
+}
+
+// SetCommonHeaders 设置通用请求头（所有 Provider 共用）
+func SetCommonHeaders(cfg *Config, req *http.Request) {
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Accept", "application/json")
+
+	if cfg.HTTPReferer != "" {
+		req.Header.Set("HTTP-Referer", cfg.HTTPReferer)
+		req.Header.Set("Referer", cfg.HTTPReferer)
+	}
+	if cfg.XTitle != "" {
+		req.Header.Set("X-Title", cfg.XTitle)
+	}
+}
+
+// ─── 统一响应读取 ──────────────────────────────────
+
+// ReadBodyOK 读取 HTTP 响应体，返回 (body, "")
+// 若 response 层出错或无权限等，返回 (nil, "错误描述")
+func ReadBodyOK(resp *http.Response, err error) ([]byte, string) {
+	if err != nil {
+		apiErr := errors.NewAPIError(0, nil, err)
+		return nil, apiErr.Message + ": " + apiErr.Suggestion
+	}
+	defer resp.Body.Close()
+
+	body, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, fmt.Sprintf("读取响应失败: %v", readErr)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		apiErr := errors.NewAPIError(resp.StatusCode, body, nil)
+		return nil, fmt.Sprintf("%s - %s", apiErr.Message, apiErr.Suggestion)
+	}
+
+	return body, ""
+}
+
+// trimURL 去除 URL 末尾的 /
+func trimURL(baseURL string) string {
+	return strings.TrimRight(baseURL, "/")
 }
