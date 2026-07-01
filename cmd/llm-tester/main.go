@@ -1,4 +1,17 @@
-// Package main 是 LLM Tester GUI 的主入口
+// Package main 是 LLM Tester GUI 的主入口。
+//
+// 架构说明:
+// 1. Gin Web 框架处理 HTTP 路由，所有 API 返回 JSON
+// 2. 前端 Vue 3 SPA 通过 go:embed 嵌入到二进制中，单文件部署
+// 3. 配置持久化到 ~/.llm_tester/configs.json
+// 4. 测试结果通过 SSE（Server-Sent Events）流式推送
+//
+// 路由分组:
+// - /api/configs/* — 配置管理（CRUD + 导入导出）
+// - /api/test/* — 测试 API（连接/聊天/批量/基准/Burn）
+// - /api/logs/* — 操作日志
+// - 其他路径 — 返回前端 SPA 的 index.html（SPA 路由）
+//
 // 基于 token-refresher-gui 的 Gin + Vue 3 SPA 架构模式
 package main
 
@@ -43,15 +56,20 @@ func addLog(format string, args ...interface{}) {
 }
 
 func main() {
+	// 设置 Gin 为 Release 模式，关闭调试日志
 	gin.SetMode(gin.ReleaseMode)
 
 	// 初始化配置存储
+	// 如果目录创建失败（如权限不足），直接 panic 阻止启动
 	var err error
 	store, err = storage.NewStore()
 	if err != nil {
 		panic(fmt.Sprintf("初始化配置存储失败: %v", err))
 	}
 
+	// serveIndex 返回嵌入的前端 SPA
+	// 所有非 /api/ 路径都返回 index.html（SPA 路由）
+	// 读取失败时记录日志并返回 500，而非静默返回空页面
 	serveIndex := func(c *gin.Context) {
 		data, err := staticFS.ReadFile("static/index.html")
 		if err != nil {
@@ -62,6 +80,8 @@ func main() {
 		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
 	}
 
+	// 创建 Gin 路由器（无默认中间件）
+	// 跳过 benchmark 和 burn 测试的访问日志，避免 SSE 推送时日志刷屏
 	r := gin.New()
 	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
 		SkipPaths: []string{"/api/test/benchmark", "/api/test/burn"},
@@ -582,6 +602,13 @@ func handleClearLogs(c *gin.Context) {
 }
 
 // toLLMConfig 将 storage.Config 转换为 llm.Config
+//
+// 为什么需要两个 Config 结构体:
+// storage 包和 llm 包是独立的（避免循环依赖），
+// 各自定义了自己的 Config 结构体。main.go 作为桥梁负责转换。
+//
+// storage.Config: 面向持久化（JSON tag、Validate 方法）
+// llm.Config: 面向 HTTP 调用（GetTimeout、GetHTTPClient 方法）
 func toLLMConfig(cfg *storage.Config) *llm.Config {
 	if cfg == nil {
 		return nil

@@ -1,5 +1,16 @@
 // Package errors 提供结构化的错误类型，用于 LLM API 测试中的错误分类和处理。
-// 复用 token-refresher-gui/errors 的设计模式，适配 LLM 测试场景。
+//
+// 设计目标:
+// - 将所有可能的错误映射到有限的错误码，便于上层做错误处理决策
+// - 每个错误附带中文描述（用户可见）和解决建议（可操作）
+// - 根据错误的严重程度和可恢复性分类
+//
+// 错误分类层级:
+// 1. 网络层: DNS 解析失败 / 连接拒绝 / 超时 / 未知
+// 2. 鉴权层: Key 无效 / 过期 / 额度用尽 / 频率超限
+// 3. 服务端: 服务器错误 / 过载 / 不可用
+// 4. 请求层: 参数错误 / 模型不存在 / 上下文超长
+// 5. 未知: 无法归类的错误
 package errors
 
 import (
@@ -9,42 +20,49 @@ import (
 )
 
 // ErrorCode 表示 LLM API 测试的错误类型码
+// 用于程序化判断错误类型，不建议直接展示给用户
 type ErrorCode string
 
 const (
-	// ---- 网络错误 ----
-	ErrNetworkTimeout       ErrorCode = "network_timeout"
-	ErrNetworkDNS           ErrorCode = "network_dns"
-	ErrNetworkConnRefused   ErrorCode = "network_conn_refused"
-	ErrNetworkUnknown       ErrorCode = "network_unknown"
+	// ─── 网络错误（前缀 network_）───────────────────
+	ErrNetworkTimeout       ErrorCode = "network_timeout"       // 连接超时
+	ErrNetworkDNS           ErrorCode = "network_dns"           // DNS 解析失败
+	ErrNetworkConnRefused   ErrorCode = "network_conn_refused"  // 连接被拒绝
+	ErrNetworkUnknown       ErrorCode = "network_unknown"       // 其他网络错误
 
-	// ---- API 鉴权错误 ----
-	ErrAuthInvalidKey       ErrorCode = "auth_invalid_key"
-	ErrAuthExpired          ErrorCode = "auth_expired"
-	ErrAuthQuotaExhausted   ErrorCode = "auth_quota_exhausted"
-	ErrAuthRateLimited      ErrorCode = "auth_rate_limited"
-	ErrAuthUnknown          ErrorCode = "auth_unknown"
+	// ─── API 鉴权错误（前缀 auth_）───────────────────
+	ErrAuthInvalidKey       ErrorCode = "auth_invalid_key"       // API Key 无效
+	ErrAuthExpired          ErrorCode = "auth_expired"           // Token 已过期
+	ErrAuthQuotaExhausted   ErrorCode = "auth_quota_exhausted"   // 额度已用尽
+	ErrAuthRateLimited      ErrorCode = "auth_rate_limited"      // 请求频率超限
+	ErrAuthUnknown          ErrorCode = "auth_unknown"           // 未知鉴权错误
 
-	// ---- 服务端错误 ----
-	ErrServerError          ErrorCode = "server_error"
-	ErrServerOverloaded     ErrorCode = "server_overloaded"
-	ErrServerUnavailable    ErrorCode = "server_unavailable"
+	// ─── 服务端错误（前缀 server_）───────────────────
+	ErrServerError          ErrorCode = "server_error"            // 服务器内部错误
+	ErrServerOverloaded     ErrorCode = "server_overloaded"      // 服务器过载
+	ErrServerUnavailable    ErrorCode = "server_unavailable"     // 服务暂不可用
 
-	// ---- 请求错误 ----
-	ErrBadRequest           ErrorCode = "bad_request"
-	ErrModelNotFound        ErrorCode = "model_not_found"
-	ErrContextLength        ErrorCode = "context_length_exceeded"
+	// ─── 请求错误（前缀 request_）───────────────────
+	ErrBadRequest           ErrorCode = "bad_request"             // 请求参数错误
+	ErrModelNotFound        ErrorCode = "model_not_found"         // 模型不存在
+	ErrContextLength        ErrorCode = "context_length_exceeded" // 上下文长度超限
 
-	// ---- 未知 ----
-	ErrUnknown              ErrorCode = "unknown"
+	// ─── 未知（兜底）────────────────────────────────
+	ErrUnknown              ErrorCode = "unknown"                 // 无法归类的错误
 )
 
 // APIError 是 LLM API 调用的结构化错误
+//
+// Code: 程序化错误码，用于上层逻辑判断
+// Message: 用户可见的错误消息（中文）
+// Detail: 技术详情（可包含 HTTP 响应体或库错误信息）
+// StatusCode: HTTP 状态码（0 表示网络层错误）
+// Suggestion: 解决建议（可操作的中文描述）
 type APIError struct {
-	Code       ErrorCode `json:"code"`
-	Message    string    `json:"message"`    // 用户可见的错误消息（中文）
-	Detail     string    `json:"detail,omitempty"` // 技术详情
-	StatusCode int       `json:"statusCode,omitempty"`
+	Code       ErrorCode `json:"code"`                 // 错误码
+	Message    string    `json:"message"`              // 用户可见的错误消息（中文）
+	Detail     string    `json:"detail,omitempty"`     // 技术详情
+	StatusCode int       `json:"statusCode,omitempty"` // HTTP 状态码
 	Suggestion string    `json:"suggestion,omitempty"` // 解决建议
 }
 
@@ -53,8 +71,20 @@ func (e *APIError) Error() string {
 }
 
 // NewAPIError 根据 HTTP 响应状态码和错误信息创建结构化错误
+//
+// 错误判断优先级:
+// 1. 网络层错误（err != nil）: DNS/连接/超时
+// 2. HTTP 4xx: 鉴权/限流/参数
+// 3. HTTP 5xx: 服务端
+// 4. 其他状态码: 未知
+//
+// 参数:
+//   - statusCode: HTTP 响应状态码（网络层错误时为 0）
+//   - body: HTTP 响应体（用于从响应内容中提取错误详情）
+//   - err: Go 网络错误（HTTP 调用成功时为 nil）
 func NewAPIError(statusCode int, body []byte, err error) *APIError {
 	// 优先检查网络层错误
+	// 此时 statusCode 为 0（没有 HTTP 响应），body 为空
 	if err != nil {
 		if e := classifyNetworkError(err); e != nil {
 			return e
@@ -84,6 +114,7 @@ func NewAPIError(statusCode int, body []byte, err error) *APIError {
 				Suggestion: "请减少消息长度或增加 max_tokens",
 			}
 		}
+		// 模型不存在错误
 		if strings.Contains(bodyStr, "model_not_found") || strings.Contains(bodyStr, "not found") {
 			return &APIError{
 				Code:       ErrModelNotFound,
@@ -126,6 +157,7 @@ func NewAPIError(statusCode int, body []byte, err error) *APIError {
 		}
 	}
 
+	// 兜底: 无法归类的错误
 	return &APIError{
 		Code:       ErrUnknown,
 		Message:    "未知错误",
@@ -136,6 +168,14 @@ func NewAPIError(statusCode int, body []byte, err error) *APIError {
 }
 
 // classifyNetworkError 将网络层错误映射为结构化错误
+//
+// 判断依据是错误消息字符串中包含的关键词:
+// - "timeout" → 连接超时（最常见）
+// - "connection refused" → 连接被拒绝（端口未开放）
+// - "no such host" / "lookup" → DNS 解析失败
+// - 其他 → 未知网络错误
+//
+// 这些关键词来自 Go 标准库的 net 包错误消息。
 func classifyNetworkError(err error) *APIError {
 	errMsg := err.Error()
 	switch {
@@ -171,6 +211,13 @@ func classifyNetworkError(err error) *APIError {
 }
 
 // classifyAuthError 根据响应体内容分类鉴权错误
+//
+// 在 401/403 状态下，根据响应体中的关键词进一步细分:
+// - "invalid_api_key" / "InvalidAuthentication" → Key 格式错误
+// - "quota" / "exhausted" / "insufficient_quota" / "insufficient balance" → 额度用完
+// - "token_expired" / "expired" → Token 过期
+// - "rate" / "limit" → 频率超限（部分 API 用 403 而非 429）
+// - 其他 → 未知鉴权错误
 func classifyAuthError(bodyStr string, statusCode int) *APIError {
 	switch {
 	case strings.Contains(bodyStr, "invalid_api_key") || strings.Contains(bodyStr, "InvalidAuthentication"):
