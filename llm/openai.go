@@ -109,7 +109,7 @@ func (p *OpenAIProvider) TestConnection(ctx context.Context) *ConnectionResult {
 func (p *OpenAIProvider) Chat(ctx context.Context, req *ChatRequest) *ChatResponse {
 	start := time.Now()
 
-	// 构造请求体
+	// 构造请求体（显式 stream=false 防止 API 默认返回 SSE 流式响应）
 	bodyMap := map[string]interface{}{
 		"model": p.config.Model,
 		"messages": []map[string]string{
@@ -117,6 +117,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req *ChatRequest) *ChatRespon
 		},
 		"temperature": req.Temperature,
 		"max_tokens":  req.MaxTokens,
+		"stream":      false,
 	}
 
 	// 判断端点模式

@@ -29,6 +29,7 @@ func (p *CustomProvider) TestConnection(ctx context.Context) *ConnectionResult {
 			{"role": "user", "content": "ping"},
 		},
 		"max_tokens": 1,
+		"stream":     false,
 	}
 
 	// 如果没设置模型，用默认提示词
@@ -39,6 +40,7 @@ func (p *CustomProvider) TestConnection(ctx context.Context) *ConnectionResult {
 				{"role": "user", "content": "ping"},
 			},
 			"max_tokens": 1,
+			"stream":     false,
 		}
 	}
 
@@ -83,7 +85,7 @@ func (p *CustomProvider) Chat(ctx context.Context, req *ChatRequest) *ChatRespon
 	start := time.Now()
 	url := p.buildURL()
 
-	// 构造请求体
+	// 构造请求体（显式 stream=false 防止流式响应导致超时）
 	bodyMap := map[string]interface{}{
 		"model": p.config.Model,
 		"messages": []map[string]string{
@@ -91,6 +93,7 @@ func (p *CustomProvider) Chat(ctx context.Context, req *ChatRequest) *ChatRespon
 		},
 		"temperature": req.Temperature,
 		"max_tokens":  req.MaxTokens,
+		"stream":      false,
 	}
 
 	bodyBytes, _ := json.Marshal(bodyMap)
