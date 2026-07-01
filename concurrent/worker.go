@@ -51,10 +51,8 @@ func NewWorkerPool(concurrency int) *WorkerPool {
 }
 
 // Start 启动 worker 池，fn 接收 req_id 返回测试结果
-func (p *WorkerPool) Start(fn func(reqID int) TestResult) {
-	ctx, cancel := context.WithCancel(context.Background())
-	p.ctx = ctx
-	p.cancel = cancel
+func (p *WorkerPool) Start(ctx context.Context, fn func(reqID int) TestResult) {
+	p.ctx, p.cancel = context.WithCancel(ctx)
 
 	for i := 0; i < p.workers; i++ {
 		p.wg.Add(1)
@@ -62,40 +60,20 @@ func (p *WorkerPool) Start(fn func(reqID int) TestResult) {
 			defer p.wg.Done()
 			for reqID := range p.input {
 				select {
-				case <-ctx.Done():
+				case <-p.ctx.Done():
 					return
 				default:
 					result := fn(reqID)
-					p.output <- result
+					// 用 select + ctx.Done 保护 output 写入，防止超时后阻塞泄漏
+					select {
+					case p.output <- result:
+					case <-p.ctx.Done():
+						return
+					}
 				}
 			}
 		}()
 	}
-}
-
-// StartWithTimeout 启动 worker 池并设置超时
-func (p *WorkerPool) StartWithTimeout(timeout time.Duration, fn func(reqID int) TestResult) *WorkerPool {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	p.ctx = ctx
-	p.cancel = cancel
-
-	for i := 0; i < p.workers; i++ {
-		p.wg.Add(1)
-		go func() {
-			defer p.wg.Done()
-			for reqID := range p.input {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-					result := fn(reqID)
-					p.output <- result
-				}
-			}
-		}()
-	}
-
-	return p
 }
 
 // Submit 提交任务到工作队列
@@ -138,18 +116,30 @@ func (p *WorkerPool) CollectResults() []TestResult {
 	return results
 }
 
-// RunBenchmark 并发执行基准测试，返回所有结果
-func RunBenchmark(concurrency int, totalReqs int, timeout time.Duration, fn func(reqID int) TestResult) []TestResult {
+// RunBenchmark 并发执行基准测试，返回所有结果。
+// ctx 用于传播上游取消信号（如 HTTP 客户端断开），timeout 为整体超时。
+func RunBenchmark(ctx context.Context, concurrency int, totalReqs int, timeout time.Duration, fn func(reqID int) TestResult) []TestResult {
 	if totalReqs <= 0 {
 		return nil
 	}
 
 	pool := NewWorkerPool(concurrency)
-	pool.StartWithTimeout(timeout, fn)
 
-	// 提交所有任务
+	// 用父 ctx 创建带超时的子 ctx，父 ctx 取消也会传播至此
+	benchCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	pool.Start(benchCtx, fn)
+
+	// 提交所有任务，若 ctx 已取消则提前退出
 	for i := 0; i < totalReqs; i++ {
-		pool.input <- i
+		select {
+		case pool.input <- i:
+		case <-benchCtx.Done():
+			// 超时或客户端断开，停止提交
+			pool.Shutdown()
+			return pool.CollectResults()
+		}
 	}
 
 	pool.Shutdown()

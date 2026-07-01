@@ -53,7 +53,12 @@ func main() {
 	}
 
 	serveIndex := func(c *gin.Context) {
-		data, _ := staticFS.ReadFile("static/index.html")
+		data, err := staticFS.ReadFile("static/index.html")
+		if err != nil {
+			addLog("❌ 读取前端静态文件失败: %v", err)
+			c.String(http.StatusInternalServerError, "前端页面加载失败")
+			return
+		}
 		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
 	}
 
@@ -263,8 +268,8 @@ func handleBatchTest(c *gin.Context) {
 	}
 	sort.Strings(names)
 
-	// 使用 RunBenchmark 并发执行
-	results := concurrent.RunBenchmark(len(names), len(names), 30*time.Second, func(reqID int) concurrent.TestResult {
+	// 使用 RunBenchmark 并发执行，传递请求上下文以支持客户端断开取消
+	results := concurrent.RunBenchmark(c.Request.Context(), len(names), len(names), 30*time.Second, func(reqID int) concurrent.TestResult {
 		if reqID >= len(names) {
 			return concurrent.TestResult{Status: 500, Error: "index out of range"}
 		}
@@ -359,8 +364,14 @@ func handleBenchmark(c *gin.Context) {
 	totalResults := req.Rounds
 	results := make([]concurrent.TestResult, 0, totalResults)
 
-	// 逐个执行并实时推送
+	// 逐个执行并实时推送，检测客户端断开
+	ctx := c.Request.Context()
 	for i := 0; i < req.Rounds; i++ {
+		// 检查客户端是否已断开
+		if err := ctx.Err(); err != nil {
+			addLog("📈 基准测试客户端断开，提前终止（已完成 %d/%d 轮）", i, req.Rounds)
+			break
+		}
 		chatReq := &llm.ChatRequest{
 			Model:     req.Config.Model,
 			Message:   req.Prompt,
@@ -479,8 +490,14 @@ func handleBurnTest(c *gin.Context) {
 	provider := llm.NewProvider(toLLMConfig(&req.Config))
 	totalTokens := 0
 	successCount := 0
+	ctx := c.Request.Context()
 
 	for i := 1; i <= req.Rounds; i++ {
+		// 检查客户端是否已断开
+		if err := ctx.Err(); err != nil {
+			addLog("🔥 Burn 压测客户端断开，提前终止（已完成 %d/%d 轮）", i-1, req.Rounds)
+			break
+		}
 		chatReq := &llm.ChatRequest{
 			Model:     req.Config.Model,
 			Message:   "请简短回复：第" + strconv.Itoa(i) + "轮测试",
@@ -581,6 +598,7 @@ func toLLMConfig(cfg *storage.Config) *llm.Config {
 		Temperature:  cfg.Temperature,
 		MaxTokens:    cfg.MaxTokens,
 		Timeout:      cfg.Timeout,
+		ProxyURL:     cfg.ProxyURL,
 	}
 }
 

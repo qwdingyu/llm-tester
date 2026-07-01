@@ -26,6 +26,7 @@ type Config struct {
 	Temperature   float64 `json:"temperature"`              // 温度参数 (0-2)
 	MaxTokens     int     `json:"max_tokens"`               // 最大输出 token 数
 	Timeout       int     `json:"timeout"`                  // HTTP 请求超时（秒），0 表示使用默认值 60s
+	ProxyURL      string  `json:"proxy_url,omitempty"`      // HTTP 代理地址，如 http://127.0.0.1:7890
 }
 
 // configsData 是配置文件的顶层结构
@@ -51,8 +52,8 @@ func NewStore() (*Store, error) {
 		return nil, fmt.Errorf("获取用户目录失败: %w", err)
 	}
 	configDir := filepath.Join(home, ".llm_tester")
-	// 确保目录存在
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	// 确保目录存在（仅所有者可读写）
+	if err := os.MkdirAll(configDir, 0700); err != nil {
 		return nil, fmt.Errorf("创建配置目录失败: %w", err)
 	}
 	s.filePath = filepath.Join(configDir, "configs.json")
@@ -92,7 +93,7 @@ func (s *Store) save() error {
 	}
 	// 原子写入：先写临时文件，再重命名
 	tmpPath := s.filePath + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
 		return fmt.Errorf("写入临时文件失败: %w", err)
 	}
 	if err := os.Rename(tmpPath, s.filePath); err != nil {

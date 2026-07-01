@@ -4,6 +4,8 @@ package llm
 
 import (
 	"context"
+	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -66,6 +68,7 @@ type Config struct {
 	Temperature  float64 // 温度参数
 	MaxTokens    int     // 最大输出 token 数
 	Timeout      int     // HTTP 请求超时（秒），0 表示使用默认值 60s
+	ProxyURL     string  // HTTP 代理地址，如 http://127.0.0.1:7890
 }
 
 // NewProvider 根据配置创建对应的 Provider 实例
@@ -96,4 +99,28 @@ func (c *Config) GetTimeout() time.Duration {
 		return defaultTimeout
 	}
 	return time.Duration(c.Timeout) * time.Second
+}
+
+// GetHTTPClient 返回配置的 HTTP 客户端（支持代理和超时）
+func (c *Config) GetHTTPClient() *http.Client {
+	if c == nil {
+		return &http.Client{Timeout: defaultTimeout}
+	}
+
+	transport := &http.Transport{
+		// 从环境变量读取代理作为兜底
+		Proxy: http.ProxyFromEnvironment,
+	}
+
+	// 如果配置了代理，覆盖环境变量
+	if c.ProxyURL != "" {
+		if proxyURL, err := url.Parse(c.ProxyURL); err == nil {
+			transport.Proxy = http.ProxyURL(proxyURL)
+		}
+	}
+
+	return &http.Client{
+		Timeout:   c.GetTimeout(),
+		Transport: transport,
+	}
 }
