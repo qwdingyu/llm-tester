@@ -143,11 +143,11 @@
       padding: 2px 8px; border-radius: 10px;
       font-size: 11px; font-weight: 500;
     }
-    .badge-success { background: #dcfce7; color: #16a34a; }
-    .badge-warning { background: #fef3c7; color: #d97706; }
-    .badge-danger { background: #fee2e2; color: #dc2626; }
-    .badge-info { background: #e0e7ff; color: #4f46e5; }
-    .badge-neutral { background: #f3f4f6; color: #6b7280; }
+    .badge-success { background: color-mix(in srgb, var(--success) 20%, var(--panel)); color: var(--success); }
+    .badge-warning { background: color-mix(in srgb, var(--warning) 20%, var(--panel)); color: var(--warning); }
+    .badge-danger { background: color-mix(in srgb, var(--danger) 20%, var(--panel)); color: var(--danger); }
+    .badge-info { background: color-mix(in srgb, var(--info) 20%, var(--panel)); color: var(--info); }
+    .badge-neutral { background: color-mix(in srgb, var(--text-muted) 15%, var(--panel)); color: var(--text-muted); }
 
     /* ── Cards ── */
     .card {
@@ -182,7 +182,7 @@
       color: var(--text-muted); font-weight: 500; white-space: nowrap;
     }
     td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
-    tbody tr:hover { background: #f8fafc; }
+    tbody tr:hover { background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
 
     /* ── Log Panel ── */
     .log-panel {
@@ -210,7 +210,7 @@
     /* ── SSE results ── */
     .result-row {
       display: flex; align-items: center; gap: 8px;
-      padding: 4px 0; font-size: 12px; border-bottom: 1px solid #f0f0f0;
+      padding: 4px 0; font-size: 12px; border-bottom: 1px solid var(--border);
     }
     .result-label { font-weight: 500; min-width: 120px; }
     .stat-grid {
