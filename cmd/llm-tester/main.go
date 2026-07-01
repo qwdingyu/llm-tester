@@ -31,9 +31,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"embed"
 
-	"github.com/user/llm-tester/concurrent"
-	"github.com/user/llm-tester/llm"
-	"github.com/user/llm-tester/storage"
+	"github.com/qwdingyu/llm-tester/concurrent"
+	"github.com/qwdingyu/llm-tester/llm"
+	"github.com/qwdingyu/llm-tester/storage"
 )
 
 //go:embed static

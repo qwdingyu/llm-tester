@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/user/llm-tester/errors"
+	"github.com/qwdingyu/llm-tester/errors"
 )
 
 // ─── 常量 ────────────────────────────────────────────

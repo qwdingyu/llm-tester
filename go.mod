@@ -1,4 +1,4 @@
-module github.com/user/llm-tester
+module github.com/qwdingyu/llm-tester
 
 go 1.23
 
