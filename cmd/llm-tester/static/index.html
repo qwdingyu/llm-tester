@@ -19,7 +19,20 @@
       --info: #6366f1;
       --radius: 6px;
     }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    .dark {
+      --bg: #0f172a;
+      --panel: #1e293b;
+      --border: #334155;
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --accent: #60a5fa;
+      --accent-hover: #3b82f6;
+      --success: #4ade80;
+      --warning: #fbbf24;
+      --danger: #f87171;
+      --info: #818cf8;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; transition: background-color 0.15s, border-color 0.15s, color 0.15s; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: var(--bg);
@@ -219,7 +232,7 @@
       cursor: pointer; transition: all 0.1s; min-height: 32px;
     }
     .config-item:hover { border-color: var(--accent); }
-    .config-item.active { border-color: var(--accent); background: #eff6ff; }
+    .config-item.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, var(--panel)); }
     .config-item .name { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .config-item .detail { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
     .config-item .actions { margin-left: auto; display: flex; gap: 4px; flex-shrink: 0; }
@@ -237,13 +250,14 @@
 
     /* ── Response box ── */
     .response-box {
-      background: #1a1a2e; color: #e4e8f0;
+      background: var(--panel); border: 1px solid var(--border);
+      color: var(--text);
       border-radius: var(--radius); padding: 12px 14px;
       font-family: 'SF Mono', 'Fira Code', monospace;
       font-size: 12px; line-height: 1.6; white-space: pre-wrap;
       max-height: 400px; overflow: auto;
     }
-    .response-box .err { color: #f87171; }
+    .response-box .err { color: var(--danger); }
 
     /* ── Empty state ── */
     .empty-state { text-align: center; padding: 40px 20px; color: var(--text-muted); }
@@ -272,6 +286,9 @@
   <div class="header">
     <div class="header-title">🧪 LLM Tester <span>v0.1</span></div>
     <div class="header-right">
+      <button class="btn btn-sm" @click="toggleTheme" :title="isDark ? '切换到浅色模式' : '切换到深色模式'">
+        {{ isDark ? '☀️' : '🌙' }}
+      </button>
       <button class="btn btn-sm" @click="showImportDialog = true">📥 导入</button>
       <button class="btn btn-sm" @click="exportConfigs">📤 导出</button>
     </div>
@@ -1320,6 +1337,20 @@ createApp({
       } catch {}
     }
 
+        // ─── 主题切换 ───
+    const isDark = ref(localStorage.getItem('llm-tester-theme') === 'dark');
+
+    function applyTheme(dark) {
+      document.documentElement.classList.toggle('dark', dark);
+    }
+    applyTheme(isDark.value);
+
+    function toggleTheme() {
+      isDark.value = !isDark.value;
+      localStorage.setItem('llm-tester-theme', isDark.value ? 'dark' : 'light');
+      applyTheme(isDark.value);
+    }
+
     // ─── Lifecycle ───
     onMounted(async () => {
       await loadConfigs();
@@ -1333,6 +1364,7 @@ createApp({
 
     return {
       tab, logs, logBody, configMap, configNames, configSearch, filteredConfigNames,
+      isDark, toggleTheme,
       editName, editConfig, selectedConfigName,
       saveConfig, selectConfig, deleteConfig, applyPreset,
       showImportDialog, importText, importConfigs, exportConfigs,
