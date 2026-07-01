@@ -16,9 +16,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"embed"
 
 	"github.com/user/llm-tester/concurrent"
-	"github.com/user/llm-tester/errors"
 	"github.com/user/llm-tester/llm"
 	"github.com/user/llm-tester/storage"
 )
@@ -180,7 +180,7 @@ func handleTestConnection(c *gin.Context) {
 		return
 	}
 
-	provider := llm.NewProvider(&req.Config)
+	provider := llm.NewProvider(toLLMConfig(&req.Config))
 	result := provider.TestConnection(c.Request.Context())
 	addLog("🔗 连接测试 [%s]: %s", req.Config.Name, result.Message)
 	c.JSON(http.StatusOK, gin.H{
@@ -211,7 +211,7 @@ func handleChat(c *gin.Context) {
 		return
 	}
 
-	provider := llm.NewProvider(&req.Config)
+	provider := llm.NewProvider(toLLMConfig(&req.Config))
 	chatReq := &llm.ChatRequest{
 		Model:     req.Config.Model,
 		Message:   req.Message,
@@ -263,11 +263,14 @@ func handleBatchTest(c *gin.Context) {
 	}
 	sort.Strings(names)
 
-	// 并发执行
-	pool := concurrent.NewWorkerPool(len(names))
-	pool.Start(func(name string) concurrent.TestResult {
+	// 使用 RunBenchmark 并发执行
+	results := concurrent.RunBenchmark(len(names), len(names), 30*time.Second, func(reqID int) concurrent.TestResult {
+		if reqID >= len(names) {
+			return concurrent.TestResult{Status: 500, Error: "index out of range"}
+		}
+		name := names[reqID]
 		cfg := req.Configs[name]
-		provider := llm.NewProvider(&cfg)
+		provider := llm.NewProvider(toLLMConfig(&cfg))
 		chatReq := &llm.ChatRequest{
 			Model:     cfg.Model,
 			Message:   req.Message,
@@ -278,31 +281,25 @@ func handleBatchTest(c *gin.Context) {
 		result := provider.Chat(c.Request.Context(), chatReq)
 		latency := time.Since(start).Seconds() * 1000
 
+		tr := concurrent.TestResult{
+			ReqID:       reqID,
+			Model:       name,
+			LatencyMs:   latency,
+		}
 		if result.Success {
-			return concurrent.TestResult{
-				Model:         name,
-				Status:        200,
-				LatencyMs:     latency,
-				ContentLength: len(result.Content),
-			}
+			tr.Status = 200
+			tr.ContentLength = len(result.Content)
+		} else {
+			tr.Status = 500
+			tr.Error = result.Error
 		}
-		return concurrent.TestResult{
-			Model:   name,
-			Status:  500,
-			LatencyMs: latency,
-			Error:   result.Error,
-		}
+		return tr
 	})
-
-	for _, name := range names {
-		pool.input <- name
-	}
-	pool.Shutdown()
 
 	// 发送结果
 	successCount := 0
 	failCount := 0
-	for result := range pool.Results() {
+	for _, result := range results {
 		data, _ := json.Marshal(result)
 		fmt.Fprintf(c.Writer, "data: %s\n\n", data)
 		c.Writer.Flush()
@@ -358,7 +355,7 @@ func handleBenchmark(c *gin.Context) {
 	c.Writer.Header().Set("Cache-Control", "no-cache")
 	c.Writer.Header().Set("Connection", "keep-alive")
 
-	provider := llm.NewProvider(&req.Config)
+	provider := llm.NewProvider(toLLMConfig(&req.Config))
 	totalResults := req.Rounds
 	results := make([]concurrent.TestResult, 0, totalResults)
 
@@ -479,7 +476,7 @@ func handleBurnTest(c *gin.Context) {
 	c.Writer.Header().Set("Cache-Control", "no-cache")
 	c.Writer.Header().Set("Connection", "keep-alive")
 
-	provider := llm.NewProvider(&req.Config)
+	provider := llm.NewProvider(toLLMConfig(&req.Config))
 	totalTokens := 0
 	successCount := 0
 
@@ -543,7 +540,7 @@ func handleListModels(c *gin.Context) {
 		return
 	}
 
-	provider := llm.NewProvider(&req.Config)
+	provider := llm.NewProvider(toLLMConfig(&req.Config))
 	models, err := provider.ListModels(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -565,6 +562,25 @@ func handleClearLogs(c *gin.Context) {
 	defer logMu.Unlock()
 	logLines = logLines[:0]
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// toLLMConfig 将 storage.Config 转换为 llm.Config
+func toLLMConfig(cfg *storage.Config) *llm.Config {
+	if cfg == nil {
+		return nil
+	}
+	return &llm.Config{
+		APIType:      cfg.APIType,
+		BaseURL:      cfg.BaseURL,
+		APIKey:       cfg.APIKey,
+		Model:        cfg.Model,
+		CustomPath:   cfg.CustomPath,
+		EndpointMode: cfg.EndpointMode,
+		HTTPReferer:  cfg.HTTPReferer,
+		XTitle:       cfg.XTitle,
+		Temperature:  cfg.Temperature,
+		MaxTokens:    cfg.MaxTokens,
+	}
 }
 
 // 辅助函数

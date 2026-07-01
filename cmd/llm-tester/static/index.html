@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM Tester</title>
+  <style>
+    :root {
+      --bg: #f0f2f5;
+      --panel: #ffffff;
+      --border: #e4e8f0;
+      --text: #1a1a2e;
+      --text-muted: #6b7280;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --info: #6366f1;
+      --radius: 6px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    #app { display: flex; flex-direction: column; height: 100vh; }
+
+    /* ── Header ── */
+    .header {
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    .header-title {
+      font-size: 15px;
+      font-weight: 600;
+    }
+    .header-title span {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 400;
+      margin-left: 8px;
+    }
+    .header-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+    /* ── Tabs ── */
+    .tabs {
+      background: var(--panel);
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      padding: 0 12px;
+      flex-shrink: 0;
+    }
+    .tab {
+      padding: 10px 16px;
+      font-size: 13px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      color: var(--text-muted);
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .tab:hover { color: var(--text); background: var(--bg); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 500; }
+
+    /* ── Main Content ── */
+    .main-content { flex: 1; display: flex; overflow: hidden; }
+    .content-panel { flex: 1; overflow: auto; padding: 16px 20px; }
+
+    /* ── Form Elements ── */
+    .form-group { margin-bottom: 12px; }
+    .form-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    .form-row { display: flex; gap: 10px; align-items: flex-end; }
+    .form-row > * { flex: 1; }
+
+    input, select, textarea {
+      width: 100%;
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 13px;
+      background: var(--panel);
+      color: var(--text);
+      transition: border-color 0.15s;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    textarea { font-family: inherit; resize: vertical; min-height: 60px; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 7px 14px; border-radius: var(--radius);
+      border: 1px solid var(--border); background: var(--panel);
+      color: var(--text); font-size: 13px; cursor: pointer;
+      transition: all 0.12s; white-space: nowrap;
+    }
+    .btn:hover { background: var(--bg); }
+    .btn-primary {
+      background: var(--accent); border-color: var(--accent); color: #fff;
+    }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-success {
+      background: var(--success); border-color: var(--success); color: #fff;
+    }
+    .btn-danger {
+      background: var(--danger); border-color: var(--danger); color: #fff;
+    }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 3px;
+      padding: 2px 8px; border-radius: 10px;
+      font-size: 11px; font-weight: 500;
+    }
+    .badge-success { background: #dcfce7; color: #16a34a; }
+    .badge-warning { background: #fef3c7; color: #d97706; }
+    .badge-danger { background: #fee2e2; color: #dc2626; }
+    .badge-info { background: #e0e7ff; color: #4f46e5; }
+    .badge-neutral { background: #f3f4f6; color: #6b7280; }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .card-title {
+      font-size: 13px; font-weight: 600;
+      margin-bottom: 10px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .card-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    /* ── Table ── */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th {
+      text-align: left; padding: 8px 10px;
+      background: var(--bg); border-bottom: 2px solid var(--border);
+      color: var(--text-muted); font-weight: 500; white-space: nowrap;
+    }
+    td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+    tbody tr:hover { background: #f8fafc; }
+
+    /* ── Log Panel ── */
+    .log-panel {
+      width: 320px; border-left: 1px solid var(--border);
+      background: var(--panel); display: flex; flex-direction: column;
+      flex-shrink: 0;
+    }
+    .log-header {
+      padding: 10px 14px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 8px;
+      font-size: 13px; font-weight: 500; flex-shrink: 0;
+    }
+    .log-body {
+      flex: 1; overflow-y: auto; padding: 6px 0;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 11px; line-height: 1.7;
+    }
+    .log-line { padding: 1px 14px; white-space: nowrap; }
+    .log-line:hover { background: var(--bg); }
+    .log-time { color: var(--text-muted); margin-right: 6px; }
+    .log-success { color: var(--success); }
+    .log-error { color: var(--danger); }
+    .log-info { color: var(--text); }
+
+    /* ── SSE results ── */
+    .result-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 4px 0; font-size: 12px; border-bottom: 1px solid #f0f0f0;
+    }
+    .result-label { font-weight: 500; min-width: 120px; }
+    .stat-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 8px;
+    }
+    .stat-box {
+      background: var(--bg); border-radius: var(--radius);
+      padding: 10px 12px; text-align: center;
+    }
+    .stat-box .value { font-size: 18px; font-weight: 600; color: var(--accent); }
+    .stat-box .label { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+    /* ── Config list ── */
+    .config-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px; border: 1px solid var(--border);
+      border-radius: var(--radius); margin-bottom: 6px;
+      cursor: pointer; transition: all 0.1s;
+    }
+    .config-item:hover { border-color: var(--accent); }
+    .config-item.active { border-color: var(--accent); background: #eff6ff; }
+    .config-item .name { font-weight: 500; font-size: 13px; }
+    .config-item .detail { font-size: 11px; color: var(--text-muted); }
+    .config-item .actions { margin-left: auto; display: flex; gap: 4px; }
+
+    /* ── Response box ── */
+    .response-box {
+      background: #1a1a2e; color: #e4e8f0;
+      border-radius: var(--radius); padding: 12px 14px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 12px; line-height: 1.6; white-space: pre-wrap;
+      max-height: 400px; overflow: auto;
+    }
+    .response-box .err { color: #f87171; }
+
+    /* ── Empty state ── */
+    .empty-state { text-align: center; padding: 40px 20px; color: var(--text-muted); }
+    .empty-state .icon { font-size: 32px; margin-bottom: 8px; }
+    .empty-state p { font-size: 13px; }
+
+    /* ── Responsive ── */
+    @media (max-width: 860px) {
+      .log-panel { display: none; }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <!-- ─── Header ─── -->
+  <div class="header">
+    <div class="header-title">🧪 LLM Tester <span>v0.1</span></div>
+    <div class="header-right">
+      <button class="btn btn-sm" @click="showImportDialog = true">📥 导入</button>
+      <button class="btn btn-sm" @click="exportConfigs">📤 导出</button>
+    </div>
+  </div>
+
+  <!-- ─── Tabs ─── -->
+  <div class="tabs">
+    <div class="tab" :class="{ active: tab === 'config' }" @click="tab = 'config'">⚙️ 配置管理</div>
+    <div class="tab" :class="{ active: tab === 'connect' }" @click="tab = 'connect'">🔗 连接测试</div>
+    <div class="tab" :class="{ active: tab === 'chat' }" @click="tab = 'chat'">💬 聊天测试</div>
+    <div class="tab" :class="{ active: tab === 'batch' }" @click="tab = 'batch'">📊 批量测试</div>
+    <div class="tab" :class="{ active: tab === 'benchmark' }" @click="tab = 'benchmark'">📈 基准测试</div>
+    <div class="tab" :class="{ active: tab === 'burn' }" @click="tab = 'burn'">🔥 压力测试</div>
+  </div>
+
+  <!-- ─── Main ─── -->
+  <div class="main-content">
+    <div class="content-panel">
+      <!-- ═══ 配置管理 ═══ -->
+      <template v-if="tab === 'config'">
+        <div class="form-row" style="margin-bottom: 12px;">
+          <div class="form-group" style="flex: 2;">
+            <label class="form-label">配置名称</label>
+            <input v-model="editName" placeholder="输入名称..." />
+          </div>
+          <div class="form-group">
+            <label class="form-label">API 类型</label>
+            <select v-model="editConfig.api_type">
+              <option value="openai">OpenAI 兼容</option>
+              <option value="ollama">Ollama</option>
+              <option value="azure">Azure</option>
+              <option value="custom">自定义</option>
+            </select>
+          </div>
+          <div class="form-group" style="display:flex; gap:4px; align-items:flex-end;">
+            <label class="form-label" style="width:100%;">&nbsp;</label>
+            <button class="btn btn-sm" @click="applyPreset" title="使用预设模板填充">📋 预设</button>
+            <button class="btn btn-sm btn-primary" @click="saveConfig" :disabled="!editName">
+              💾 保存
+            </button>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">API 地址</label>
+            <input v-model="editConfig.base_url" placeholder="https://api.openai.com/v1" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">API Key</label>
+            <input v-model="editConfig.api_key" type="password" placeholder="sk-..." />
+          </div>
+          <div class="form-group">
+            <label class="form-label">模型</label>
+            <input v-model="editConfig.model" placeholder="gpt-4o-mini" />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">温度 (0-2)</label>
+            <input v-model.number="editConfig.temperature" type="number" step="0.1" min="0" max="2" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Max Tokens</label>
+            <input v-model.number="editConfig.max_tokens" type="number" min="1" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">端点模式</label>
+            <select v-model="editConfig.endpoint_mode">
+              <option value="chat_completions">chat/completions</option>
+              <option value="responses">responses</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">自定义路径</label>
+            <input v-model="editConfig.custom_path" placeholder="custom（仅 custom 类型）" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">HTTP-Referer</label>
+            <input v-model="editConfig.http_referer" placeholder="可选" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">X-Title</label>
+            <input v-model="editConfig.x_title" placeholder="可选" />
+          </div>
+        </div>
+
+        <div class="card-title" style="margin-top: 16px;">已保存的配置</div>
+        <div v-if="configNames.length === 0" class="empty-state">
+          <div class="icon">📭</div>
+          <p>暂无配置，从预设选择或手动填写后保存</p>
+        </div>
+        <div v-for="name in configNames" :key="name" class="config-item"
+             :class="{ active: selectedConfigName === name }"
+             @click="selectConfig(name)">
+          <div>
+            <div class="name">{{ name }}</div>
+            <div class="detail">{{ configMap[name]?.api_type }} · {{ configMap[name]?.model || '—' }}</div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-sm btn-danger" @click.stop="deleteConfig(name)">🗑️</button>
+          </div>
+        </div>
+      </template>
+
+      <!-- ═══ 连接测试 ═══ -->
+      <template v-if="tab === 'connect'">
+        <div class="card">
+          <div class="card-title">🔗 连接测试</div>
+          <div class="form-group">
+            <label class="form-label">选择配置</label>
+            <select v-model="connectConfigName">
+              <option value="" disabled>请选择...</option>
+              <option v-for="n in configNames" :key="n" :value="n">{{ n }}</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" @click="testConnection" :disabled="!connectConfigName || connecting">
+            {{ connecting ? '测试中...' : '测试连接' }}
+          </button>
+        </div>
+
+        <div v-if="connectionResult" class="card">
+          <div class="card-title">
+            <span :class="connectionResult.success ? 'badge badge-success' : 'badge badge-danger'">
+              {{ connectionResult.success ? '✅ 连接成功' : '❌ 连接失败' }}
+            </span>
+          </div>
+          <p style="font-size:13px; margin-bottom:8px;">{{ connectionResult.message }}</p>
+          <div v-if="connectionResult.models && connectionResult.models.length">
+            <div class="form-label">可用模型:</div>
+            <div style="display:flex; flex-wrap:wrap; gap:4px;">
+              <span v-for="m in connectionResult.models" :key="m" class="badge badge-info">{{ m }}</span>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ═══ 聊天测试 ═══ -->
+      <template v-if="tab === 'chat'">
+        <div class="card">
+          <div class="card-title">💬 聊天测试</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">选择配置</label>
+              <select v-model="chatConfigName">
+                <option value="" disabled>请选择...</option>
+                <option v-for="n in configNames" :key="n" :value="n">{{ n }}</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">温度</label>
+              <input v-model.number="chatTemperature" type="number" step="0.1" min="0" max="2" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Max Tokens</label>
+              <input v-model.number="chatMaxTokens" type="number" min="1" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">消息</label>
+            <textarea v-model="chatMessage" placeholder="输入消息..." rows="3"></textarea>
+          </div>
+          <button class="btn btn-primary" @click="sendChat"
+                  :disabled="!chatConfigName || !chatMessage || chatting">
+            {{ chatting ? '发送中...' : '发送' }}
+          </button>
+        </div>
+
+        <div v-if="chatResponse" class="card">
+          <div class="card-title">
+            <span v-if="chatResponse.success" class="badge badge-success">✅ 成功</span>
+            <span v-else class="badge badge-danger">❌ 失败</span>
+            <span style="font-size:12px; color:var(--text-muted); margin-left:auto;">
+              {{ chatResponse.latency_ms?.toFixed(0) }}ms ·
+              {{ chatResponse.total_tokens || 0 }} tokens
+            </span>
+          </div>
+          <div v-if="chatResponse.error" class="response-box" style="margin-bottom:8px;">
+            <span class="err">{{ chatResponse.error }}</span>
+          </div>
+          <div class="response-box" v-if="chatResponse.content">{{ chatResponse.content }}</div>
+          <div style="display:flex; gap:12px; margin-top:8px; font-size:12px; color:var(--text-muted);">
+            <span>Prompt: {{ chatResponse.prompt_tokens ?? '—' }}</span>
+            <span>Completion: {{ chatResponse.completion_tokens ?? '—' }}</span>
+            <span>Finish: {{ chatResponse.finish_reason || '—' }}</span>
+          </div>
+        </div>
+      </template>
+
+      <!-- ═══ 批量测试 ═══ -->
+      <template v-if="tab === 'batch'">
+        <div class="card">
+          <div class="card-title">📊 批量测试</div>
+          <div class="form-group">
+            <label class="form-label">选择配置（可多选）</label>
+            <div style="display:flex; flex-wrap:wrap; gap:6px;">
+              <label v-for="n in configNames" :key="n"
+                     class="badge" :class="batchConfigs.includes(n) ? 'badge-success' : 'badge-neutral'"
+                     style="cursor:pointer; padding:4px 12px;"
+                     @click="toggleBatchConfig(n)">
+                {{ n }}
+              </label>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">消息</label>
+            <textarea v-model="batchMessage" placeholder="输入测试消息..." rows="2"></textarea>
+          </div>
+          <button class="btn btn-primary" @click="runBatchTest"
+                  :disabled="batchConfigs.length === 0 || !batchMessage || batchRunning">
+            {{ batchRunning ? '运行中...' : '运行批量测试' }}
+          </button>
+        </div>
+
+        <div v-if="batchResults.length > 0" class="card">
+          <div class="card-title">
+            测试结果
+            <span style="font-size:12px; color:var(--text-muted); margin-left:auto;">
+              成功 {{ batchSuccess }} / 失败 {{ batchFail }} / 总计 {{ batchResults.length }}
+            </span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>#</th><th>配置</th><th>状态</th><th>延迟</th><th>内容长度</th><th>错误</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="r in batchResults" :key="r.req_id">
+                  <td>{{ r.req_id + 1 }}</td>
+                  <td>{{ r.model }}</td>
+                  <td>
+                    <span class="badge" :class="r.status === 200 ? 'badge-success' : 'badge-danger'">
+                      {{ r.status === 200 ? '成功' : '失败' }}
+                    </span>
+                  </td>
+                  <td>{{ r.latency_ms?.toFixed(0) }}ms</td>
+                  <td>{{ r.content_length ?? '—' }}</td>
+                  <td style="color:var(--danger); font-size:12px;">{{ r.error || '' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+
+      <!-- ═══ 基准测试 ═══ -->
+      <template v-if="tab === 'benchmark'">
+        <div class="card">
+          <div class="card-title">📈 基准测试</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">选择配置</label>
+              <select v-model="benchConfigName">
+                <option value="" disabled>请选择...</option>
+                <option v-for="n in configNames" :key="n" :value="n">{{ n }}</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">轮次</label>
+              <input v-model.number="benchRounds" type="number" min="1" max="100" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">并发数</label>
+              <input v-model.number="benchConcurrency" type="number" min="1" max="50" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Max Tokens</label>
+              <input v-model.number="benchMaxTokens" type="number" min="1" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">测试提示词</label>
+            <textarea v-model="benchPrompt" placeholder="输入测试提示词..." rows="2"></textarea>
+          </div>
+          <button class="btn btn-primary" @click="runBenchmark"
+                  :disabled="!benchConfigName || !benchPrompt || benchRunning">
+            {{ benchRunning ? '运行中...' : '运行基准测试' }}
+          </button>
+        </div>
+
+        <div v-if="benchReport" class="card">
+          <div class="card-title">📊 统计报告</div>
+          <div class="stat-grid">
+            <div class="stat-box">
+              <div class="value">{{ benchReport.total }}</div>
+              <div class="label">总请求</div>
+            </div>
+            <div class="stat-box">
+              <div class="value" style="color:var(--success);">{{ benchReport.success }}</div>
+              <div class="label">成功</div>
+            </div>
+            <div class="stat-box">
+              <div class="value" style="color:var(--danger);">{{ benchReport.failed }}</div>
+              <div class="label">失败</div>
+            </div>
+            <div class="stat-box">
+              <div class="value">{{ benchReport.lat_avg?.toFixed(0) }}ms</div>
+              <div class="label">平均延迟</div>
+            </div>
+            <div class="stat-box">
+              <div class="value">{{ benchReport.lat_min?.toFixed(0) }}ms</div>
+              <div class="label">最小延迟</div>
+            </div>
+            <div class="stat-box">
+              <div class="value">{{ benchReport.lat_max?.toFixed(0) }}ms</div>
+              <div class="label">最大延迟</div>
+            </div>
+            <div class="stat-box">
+              <div class="value">{{ benchReport.lat_p50?.toFixed(0) }}ms</div>
+              <div class="label">P50</div>
+            </div>
+            <div class="stat-box">
+              <div class="value">{{ benchReport.lat_p95?.toFixed(0) }}ms</div>
+              <div class="label">P95</div>
+            </div>
+            <div class="stat-box">
+              <div class="value">{{ benchReport.stdev?.toFixed(1) }}</div>
+              <div class="label">标准差</div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="benchResults.length > 0" class="card">
+          <div class="card-title">逐轮结果</div>
+          <div class="table-wrap" style="max-height:250px; overflow-y:auto;">
+            <table>
+              <thead><tr>
+                <th>#</th><th>延迟</th><th>Prompt Tokens</th><th>Completion Tokens</th><th>内容预览</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="r in benchResults" :key="r.req_id">
+                  <td>{{ r.req_id + 1 }}</td>
+                  <td>{{ r.latency_ms?.toFixed(0) }}ms</td>
+                  <td>{{ r.prompt_tokens ?? '—' }}</td>
+                  <td>{{ r.completion_tokens ?? '—' }}</td>
+                  <td style="font-size:11px; max-width:200px; overflow:hidden; text-overflow:ellipsis;">
+                    {{ r.content_preview || '' }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+
+      <!-- ═══ 压力测试 ═══ -->
+      <template v-if="tab === 'burn'">
+        <div class="card">
+          <div class="card-title">🔥 压力测试</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">选择配置</label>
+              <select v-model="burnConfigName">
+                <option value="" disabled>请选择...</option>
+                <option v-for="n in configNames" :key="n" :value="n">{{ n }}</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">测试轮次</label>
+              <input v-model.number="burnRounds" type="number" min="1" max="500" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Max Tokens</label>
+              <input v-model.number="burnMaxTokens" type="number" min="1" />
+            </div>
+          </div>
+          <button class="btn btn-danger" @click="runBurnTest"
+                  :disabled="!burnConfigName || burnRunning">
+            {{ burnRunning ? '运行中...' : '🔥 开始压力测试' }}
+          </button>
+        </div>
+
+        <div v-if="burnDone" class="card">
+          <div class="card-title">测试完成</div>
+          <div class="stat-grid">
+            <div class="stat-box">
+              <div class="value">{{ burnDone.total_rounds }}</div>
+              <div class="label">总轮次</div>
+            </div>
+            <div class="stat-box">
+              <div class="value" style="color:var(--success);">{{ burnDone.success }}</div>
+              <div class="label">成功</div>
+            </div>
+            <div class="stat-box">
+              <div class="value">{{ burnDone.total_tokens }}</div>
+              <div class="label">总 Tokens</div>
+            </div>
+            <div class="stat-box">
+              <div class="value">{{ (burnDone.total_tokens / burnDone.total_rounds).toFixed(0) }}</div>
+              <div class="label">平均 Tokens/轮</div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="burnResults.length > 0" class="card">
+          <div class="card-title">逐轮结果</div>
+          <div class="table-wrap" style="max-height:250px; overflow-y:auto;">
+            <table>
+              <thead><tr>
+                <th>#</th><th>状态</th><th>延迟</th><th>Completion Tokens</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="r in burnResults" :key="r.req_id">
+                  <td>{{ r.req_id }}</td>
+                  <td>
+                    <span class="badge" :class="r.status === 200 ? 'badge-success' : 'badge-danger'">
+                      {{ r.status === 200 ? 'OK' : 'FAIL' }}
+                    </span>
+                  </td>
+                  <td>{{ r.latency_ms?.toFixed(0) }}ms</td>
+                  <td>{{ r.completion_tokens ?? '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- ─── Log Panel ─── -->
+    <div class="log-panel">
+      <div class="log-header">
+        📋 操作日志
+        <button class="btn btn-sm" style="margin-left:auto" @click="clearLogs">清空</button>
+      </div>
+      <div class="log-body" ref="logBody">
+        <div v-for="(line, i) in logs" :key="i"
+             class="log-line" :class="logClass(line)">
+          <span class="log-time">{{ logTime(line) }}</span>{{ logMsg(line) }}
+        </div>
+        <div v-if="logs.length === 0" style="padding:16px; color:var(--text-muted); font-size:12px; text-align:center;">
+          暂无日志
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Import Dialog ─── -->
+  <div v-if="showImportDialog" style="position:fixed; inset:0; background:rgba(0,0,0,0.3);
+       display:flex; align-items:center; justify-content:center; z-index:200;">
+    <div class="card" style="width:460px; max-width:90vw;">
+      <div class="card-title">📥 导入配置</div>
+      <div class="form-group">
+        <label class="form-label">粘贴 JSON</label>
+        <textarea v-model="importText" rows="6" placeholder='{"configs": {...}} 或 [...]'></textarea>
+      </div>
+      <div class="card-actions">
+        <button class="btn btn-primary" @click="importConfigs">导入</button>
+        <button class="btn" @click="showImportDialog = false">取消</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { createApp, ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js';
+
+// ─── API ───
+const API = {
+  async get(url) { const r = await fetch(url); return r.json(); },
+  async post(url, body) {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return r.json();
+  },
+  async del(url) { const r = await fetch(url, { method: 'DELETE' }); return r.json(); },
+};
+
+// ─── 工具 ───
+const EMPTY_CONFIG = () => ({
+  api_type: 'openai',
+  base_url: '',
+  api_key: '',
+  model: '',
+  custom_path: '',
+  endpoint_mode: 'chat_completions',
+  http_referer: '',
+  x_title: '',
+  temperature: 0.7,
+  max_tokens: 1024,
+});
+
+// ─── App ───
+createApp({
+  setup() {
+    // ─── State ───
+    const tab = ref('config');
+    const logs = ref([]);
+    const logBody = ref(null);
+    let logTimer = null;
+
+    // Config list
+    const configMap = ref({});
+    const configNames = computed(() => {
+      const names = configMap.value.names || [];
+      return [...names].sort();
+    });
+
+    // Config editor
+    const editName = ref('');
+    const editConfig = reactive(EMPTY_CONFIG());
+    const selectedConfigName = ref('');
+
+    // Connect test
+    const connectConfigName = ref('');
+    const connecting = ref(false);
+    const connectionResult = ref(null);
+
+    // Chat test
+    const chatConfigName = ref('');
+    const chatMessage = ref('');
+    const chatTemperature = ref(0.7);
+    const chatMaxTokens = ref(1024);
+    const chatting = ref(false);
+    const chatResponse = ref(null);
+
+    // Batch test
+    const batchConfigs = ref([]);
+    const batchMessage = ref('');
+    const batchRunning = ref(false);
+    const batchResults = ref([]);
+    const batchSuccess = computed(() => batchResults.value.filter(r => r.status === 200).length);
+    const batchFail = computed(() => batchResults.value.filter(r => r.status !== 200).length);
+
+    // Benchmark
+    const benchConfigName = ref('');
+    const benchRounds = ref(10);
+    const benchConcurrency = ref(5);
+    const benchMaxTokens = ref(1024);
+    const benchPrompt = ref('请用一句话回复：中国的首都是什么？');
+    const benchRunning = ref(false);
+    const benchResults = ref([]);
+    const benchReport = ref(null);
+
+    // Burn test
+    const burnConfigName = ref('');
+    const burnRounds = ref(20);
+    const burnMaxTokens = ref(512);
+    const burnRunning = ref(false);
+    const burnResults = ref([]);
+    const burnDone = ref(null);
+
+    // Import dialog
+    const showImportDialog = ref(false);
+    const importText = ref('');
+
+    // ─── Load Configs ───
+    async function loadConfigs() {
+      configMap.value = await API.get('/api/configs');
+    }
+
+    // ─── Save Config ───
+    async function saveConfig() {
+      const cfg = {
+        name: editName.value,
+        ...editConfig,
+      };
+      const result = await API.post('/api/configs', cfg);
+      if (result.success) {
+        addLog(result.message);
+        await loadConfigs();
+      } else {
+        addLog('❌ 保存失败: ' + (result.error || '未知错误'));
+      }
+    }
+
+    // ─── Select / Edit Config ───
+    function selectConfig(name) {
+      selectedConfigName.value = name;
+      const cfg = configMap.value.configs?.[name];
+      if (cfg) {
+        editName.value = cfg.name;
+        Object.assign(editConfig, {
+          api_type: cfg.api_type || 'openai',
+          base_url: cfg.base_url || '',
+          api_key: cfg.api_key || '',
+          model: cfg.model || '',
+          custom_path: cfg.custom_path || '',
+          endpoint_mode: cfg.endpoint_mode || 'chat_completions',
+          http_referer: cfg.http_referer || '',
+          x_title: cfg.x_title || '',
+          temperature: cfg.temperature ?? 0.7,
+          max_tokens: cfg.max_tokens || 1024,
+        });
+      }
+    }
+
+    // ─── Delete Config ───
+    async function deleteConfig(name) {
+      if (!confirm(`确定删除配置「${name}」？`)) return;
+      const result = await API.del(`/api/configs/${encodeURIComponent(name)}`);
+      if (result.success) {
+        addLog(result.message);
+        if (selectedConfigName.value === name) {
+          selectedConfigName.value = '';
+          editName.value = '';
+          Object.assign(editConfig, EMPTY_CONFIG());
+        }
+        await loadConfigs();
+      }
+    }
+
+    // ─── Preset ───
+    async function applyPreset() {
+      const data = await API.get('/api/configs/presets');
+      const presets = data.presets || [];
+      // Simple prompt-based selection: use first
+      if (presets.length > 0) {
+        // Show selection UI
+        const names = presets.map(p => p.name);
+        const choice = prompt('选择预设:\n' + names.map((n, i) => `${i+1}. ${n}`).join('\n'), '1');
+        const idx = parseInt(choice) - 1;
+        if (idx >= 0 && idx < presets.length) {
+          const p = presets[idx];
+          editName.value = p.name;
+          Object.assign(editConfig, {
+            api_type: p.api_type,
+            base_url: p.base_url,
+            model: p.model,
+            endpoint_mode: p.endpoint_mode || 'chat_completions',
+            api_key: editConfig.api_key,
+            custom_path: '',
+            http_referer: '',
+            x_title: '',
+            temperature: 0.7,
+            max_tokens: 1024,
+          });
+        }
+      }
+    }
+
+    // ─── Import ───
+    async function importConfigs() {
+      if (!importText.value) return;
+      const r = await fetch('/api/configs/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: importText.value,
+      });
+      const result = await r.json();
+      if (result.success) {
+        addLog(result.message);
+        showImportDialog.value = false;
+        importText.value = '';
+        await loadConfigs();
+      } else {
+        addLog('❌ 导入失败: ' + (result.error || '未知错误'));
+      }
+    }
+
+    // ─── Export ───
+    function exportConfigs() {
+      window.open('/api/configs/export', '_blank');
+      addLog('📤 已导出配置');
+    }
+
+    // ─── Test Connection ───
+    async function testConnection() {
+      const name = connectConfigName.value;
+      const cfg = configMap.value.configs?.[name];
+      if (!cfg) return;
+      connecting.value = true;
+      connectionResult.value = null;
+      try {
+        const result = await API.post('/api/test/connection', { config: cfg });
+        connectionResult.value = result;
+        addLog(result.success
+          ? `✅ [${name}] 连接成功`
+          : `❌ [${name}] 连接失败: ${result.message}`);
+      } catch (e) {
+        connectionResult.value = { success: false, message: e.message };
+        addLog(`❌ [${name}] 连接异常: ${e.message}`);
+      } finally {
+        connecting.value = false;
+      }
+    }
+
+    // ─── Chat ───
+    async function sendChat() {
+      const name = chatConfigName.value;
+      const cfg = configMap.value.configs?.[name];
+      if (!cfg) return;
+      chatting.value = true;
+      chatResponse.value = null;
+      try {
+        const result = await API.post('/api/test/chat', {
+          config: cfg,
+          message: chatMessage.value,
+          max_tokens: chatMaxTokens.value || 1024,
+          temperature: chatTemperature.value ?? 0.7,
+        });
+        chatResponse.value = result;
+        addLog(result.success
+          ? `💬 [${name}] 回复 ${result.total_tokens || 0} tokens, ${(result.latency_ms || 0).toFixed(0)}ms`
+          : `💬 [${name}] 失败: ${result.error}`);
+      } catch (e) {
+        chatResponse.value = { success: false, error: e.message };
+        addLog(`💬 [${name}] 异常: ${e.message}`);
+      } finally {
+        chatting.value = false;
+      }
+    }
+
+    // ─── Batch Test (SSE) ───
+    async function runBatchTest() {
+      const configs = {};
+      for (const name of batchConfigs.value) {
+        const cfg = configMap.value.configs?.[name];
+        if (cfg) configs[name] = cfg;
+      }
+      if (Object.keys(configs).length === 0) return;
+      batchRunning.value = true;
+      batchResults.value = [];
+
+      try {
+        const r = await fetch('/api/test/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ configs, message: batchMessage.value }),
+        });
+        const reader = r.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split('\n');
+          buf = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const data = JSON.parse(line.slice(6));
+            if (data.type === 'done') {
+              addLog(`📊 批量测试完成: 成功${data.success}, 失败${data.fail}`);
+            } else {
+              batchResults.value.push(data);
+            }
+          }
+        }
+      } catch (e) {
+        addLog('❌ 批量测试异常: ' + e.message);
+      } finally {
+        batchRunning.value = false;
+      }
+    }
+
+    // ─── Toggle batch config ───
+    function toggleBatchConfig(name) {
+      const idx = batchConfigs.value.indexOf(name);
+      if (idx >= 0) batchConfigs.value.splice(idx, 1);
+      else batchConfigs.value.push(name);
+    }
+
+    // ─── Benchmark (SSE) ───
+    async function runBenchmark() {
+      const name = benchConfigName.value;
+      const cfg = configMap.value.configs?.[name];
+      if (!cfg) return;
+      benchRunning.value = true;
+      benchResults.value = [];
+      benchReport.value = null;
+
+      try {
+        const r = await fetch('/api/test/benchmark', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            config: cfg,
+            concurrency: benchConcurrency.value || 5,
+            max_tokens: benchMaxTokens.value || 1024,
+            prompt: benchPrompt.value,
+            rounds: benchRounds.value || 10,
+          }),
+        });
+        const reader = r.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split('\n');
+          buf = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const data = JSON.parse(line.slice(6));
+            if (data.type === 'report') {
+              benchReport.value = data;
+              addLog(`📊 基准测试: ${data.success}/${data.total} 成功, 平均 ${data.lat_avg?.toFixed(0)}ms`);
+            } else if (data.req_id !== undefined) {
+              benchResults.value.push(data);
+            }
+          }
+        }
+      } catch (e) {
+        addLog('❌ 基准测试异常: ' + e.message);
+      } finally {
+        benchRunning.value = false;
+      }
+    }
+
+    // ─── Burn Test (SSE) ───
+    async function runBurnTest() {
+      const name = burnConfigName.value;
+      const cfg = configMap.value.configs?.[name];
+      if (!cfg) return;
+      burnRunning.value = true;
+      burnResults.value = [];
+      burnDone.value = null;
+
+      try {
+        const r = await fetch('/api/test/burn', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            config: cfg,
+            rounds: burnRounds.value || 20,
+            max_tokens: burnMaxTokens.value || 512,
+          }),
+        });
+        const reader = r.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split('\n');
+          buf = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const data = JSON.parse(line.slice(6));
+            if (data.type === 'done') {
+              burnDone.value = data;
+              addLog(`🔥 压力测试完成: ${data.success}/${data.total_rounds} 成功, ${data.total_tokens} tokens`);
+            } else if (data.req_id !== undefined) {
+              burnResults.value.push(data);
+            }
+          }
+        }
+      } catch (e) {
+        addLog('❌ 压力测试异常: ' + e.message);
+      } finally {
+        burnRunning.value = false;
+      }
+    }
+
+    // ─── Logs ───
+    function logClass(line) {
+      if (line.includes('❌')) return 'log-error';
+      if (line.includes('✅') || line.includes('💾') || line.includes('📥') || line.includes('📤')) return 'log-success';
+      return 'log-info';
+    }
+    function logTime(line) { return line.split(' ')[0] || ''; }
+    function logMsg(line) { return line.split(' ').slice(1).join(' ') || ''; }
+
+    function addLog(msg) {
+      const now = new Date();
+      const ts = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+      logs.value.push(`${ts} ${msg}`);
+      if (logs.value.length > 500) logs.value.splice(0, logs.value.length - 500);
+      nextTick(() => {
+        if (logBody.value) logBody.value.scrollTop = logBody.value.scrollHeight;
+      });
+    }
+
+    async function clearLogs() {
+      await API.del('/api/logs');
+      logs.value = [];
+    }
+
+    async function pollLogs() {
+      try {
+        const data = await API.get('/api/logs');
+        if (data.logs && data.logs.length > logs.value.length) {
+          logs.value = data.logs;
+          await nextTick();
+          if (logBody.value) logBody.value.scrollTop = logBody.value.scrollHeight;
+        }
+      } catch {}
+    }
+
+    // ─── Lifecycle ───
+    onMounted(async () => {
+      await loadConfigs();
+      addLog('🚀 LLM Tester 已启动');
+      logTimer = setInterval(pollLogs, 2000);
+    });
+
+    onUnmounted(() => {
+      if (logTimer) clearInterval(logTimer);
+    });
+
+    return {
+      tab, logs, logBody, configMap, configNames,
+      editName, editConfig, selectedConfigName,
+      saveConfig, selectConfig, deleteConfig, applyPreset,
+      showImportDialog, importText, importConfigs, exportConfigs,
+      connectConfigName, connecting, connectionResult, testConnection,
+      chatConfigName, chatMessage, chatTemperature, chatMaxTokens,
+      chatting, chatResponse, sendChat,
+      batchConfigs, batchMessage, batchRunning, batchResults,
+      batchSuccess, batchFail, runBatchTest, toggleBatchConfig,
+      benchConfigName, benchRounds, benchConcurrency, benchMaxTokens,
+      benchPrompt, benchRunning, benchResults, benchReport, runBenchmark,
+      burnConfigName, burnRounds, burnMaxTokens,
+      burnRunning, burnResults, burnDone, runBurnTest,
+      logClass, logTime, logMsg, clearLogs, addLog,
+    };
+  },
+}).mount('#app');
+</script>
+</body>
+</html>
