@@ -229,7 +229,9 @@ func classifyAuthError(bodyStr string, statusCode int) *APIError {
 			Suggestion: "请检查 API Key 是否正确",
 		}
 	case strings.Contains(bodyStr, "quota") || strings.Contains(bodyStr, "exhausted") ||
-		strings.Contains(bodyStr, "insufficient_quota") || strings.Contains(bodyStr, "insufficient balance"):
+		strings.Contains(bodyStr, "insufficient_quota") || strings.Contains(bodyStr, "insufficient balance") ||
+		strings.Contains(bodyStr, "INSUFFICIENT_BALANCE") || strings.Contains(bodyStr, "insufficient_balance") ||
+		strings.Contains(strings.ToLower(bodyStr), "insufficient"):
 		return &APIError{
 			Code:       ErrAuthQuotaExhausted,
 			Message:    "额度已用尽",

@@ -87,6 +87,8 @@ func TestNewAPIError_QuotaExhausted(t *testing.T) {
 		{"quota exceeded"},
 		{"insufficient_quota"},
 		{"insufficient balance"},
+		{"INSUFFICIENT_BALANCE"},
+		{"Insufficient account balance"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.body[:10], func(t *testing.T) {
