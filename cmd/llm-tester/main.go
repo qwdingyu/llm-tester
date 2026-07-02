@@ -24,6 +24,8 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -96,6 +98,7 @@ func main() {
 	r.DELETE("/api/configs/:name", handleDeleteConfig)
 	r.GET("/api/configs/presets", handleGetPresets)
 	r.POST("/api/configs/import", handleImportConfigs)
+	r.POST("/api/configs/cpa-sync", handleCpaSync)
 	r.GET("/api/configs/export", handleExportConfigs)
 
 	// 测试 API
@@ -194,6 +197,105 @@ func handleExportConfigs(c *gin.Context) {
 	c.Header("Content-Type", "application/json")
 	c.Header("Content-Disposition", "attachment; filename=llm_configs.json")
 	c.String(http.StatusOK, string(data))
+}
+
+// handleCpaSync 从 CPA 数据库同步配置
+func handleCpaSync(c *gin.Context) {
+	var req struct {
+		DbPath string `json:"db_path"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求数据"})
+		return
+	}
+	if req.DbPath == "" {
+		// 默认路径
+		home, _ := os.UserHomeDir()
+		req.DbPath = filepath.Join(home, "llm_auth_manager", "data", "credentials.db")
+	}
+
+	// 扩展 ~ 为 home 目录
+	if strings.HasPrefix(req.DbPath, "~/") {
+		home, _ := os.UserHomeDir()
+		req.DbPath = filepath.Join(home, req.DbPath[2:])
+	}
+
+	// 使用 sqlite3 CLI 读取数据库
+	// 之所以用 CLI 而非引入 sqlite driver，是为了保持零外部依赖
+	query := `SELECT p.name, p.type, p.base_url, p.default_model, p.disabled,
+		c.content, c.key_preview, c.user_enabled
+		FROM providers p
+		LEFT JOIN credentials c ON c.provider_id = p.id
+		WHERE c.type = 'api_key' AND c.user_enabled = 1 AND p.disabled = 0
+		ORDER BY p.name`
+
+	cmd := exec.Command("sqlite3", "-separator", "|", req.DbPath, query)
+	output, err := cmd.Output()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("读取 CPA 数据库失败: %v（请确认 sqlite3 已安装）", err),
+		})
+		return
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	imported := 0
+	skipped := 0
+
+	for _, line := range lines {
+		parts := strings.Split(line, "|")
+		if len(parts) < 5 {
+			continue
+		}
+		name := strings.TrimSpace(parts[0])
+		apiType := strings.TrimSpace(parts[1])
+		baseURL := strings.TrimSpace(parts[2])
+		defaultModel := strings.TrimSpace(parts[3])
+		// parts[4] = disabled (already filtered by query)
+		apiKey := ""
+		if len(parts) >= 7 {
+			apiKey = strings.TrimSpace(parts[5])
+		}
+
+		if name == "" || baseURL == "" {
+			skipped++
+			continue
+		}
+
+		// 使用 CPA 提供的 API 类型，否则尝试从 base_url 推断
+		if apiType == "" {
+			apiType = "openai"
+		}
+
+		// 已存在的配置跳过
+		if store.Get(name) != nil {
+			skipped++
+			continue
+		}
+
+		cfg := &storage.Config{
+			Name:    name,
+			APIType: apiType,
+			BaseURL: baseURL,
+			APIKey:  apiKey,
+			Model:   defaultModel,
+		}
+
+		if err := store.Save(name, cfg); err != nil {
+			addLog("⚠️ CPA 同步跳过 %s: %v", name, err)
+			skipped++
+			continue
+		}
+		imported++
+	}
+
+	addLog("🔄 CPA 同步完成: 导入 %d 个, 跳过 %d 个", imported, skipped)
+	c.JSON(http.StatusOK, gin.H{
+		"success":  true,
+		"imported": imported,
+		"skipped":  skipped,
+	})
 }
 
 // handleTestConnection 测试连接

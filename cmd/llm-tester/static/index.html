@@ -227,16 +227,16 @@
 
     /* ── Config list ── */
     .config-item {
-      display: flex; align-items: center; gap: 6px;
-      padding: 6px 10px; border: 1px solid var(--border);
-      border-radius: var(--radius); margin-bottom: 4px;
-      cursor: pointer; transition: all 0.1s; min-height: 32px;
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 10px; border: 1px solid var(--border);
+      border-radius: var(--radius); margin-bottom: 3px;
+      cursor: pointer; transition: all 0.1s; min-height: 28px;
     }
     .config-item:hover { border-color: var(--accent); }
     .config-item.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, var(--panel)); }
-    .config-item .name { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .config-item .detail { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
-    .config-item .actions { margin-left: auto; display: flex; gap: 4px; flex-shrink: 0; }
+    .config-item .name { font-weight: 500; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+    .config-item .detail { font-size: 11px; color: var(--text-muted); flex-shrink: 0; white-space: nowrap; }
+    .config-item .actions { display: flex; gap: 3px; flex-shrink: 0; }
 
     /* 配置编辑表单内联显示 */
     .config-form-grid {
@@ -292,6 +292,7 @@
       </button>
       <button class="btn btn-sm" @click="showImportDialog = true">📥 导入</button>
       <button class="btn btn-sm" @click="exportConfigs">📤 导出</button>
+      <button class="btn btn-sm" @click="showCpaImport = true">🔄 CPA 同步</button>
     </div>
   </div>
 
@@ -344,7 +345,10 @@
           </div>
           <div class="form-group">
             <label class="form-label">模型</label>
-            <input v-model="editConfig.model" placeholder="gpt-4o-mini" />
+            <div style="display:flex; gap:3px;">
+              <input v-model="editConfig.model" placeholder="gpt-4o-mini" style="flex:1;" />
+              <button class="btn btn-sm" @click="fetchModels" :disabled="!editConfig.base_url || !editConfig.api_key" title="从 API 获取模型列表">📡 获取</button>
+            </div>
           </div>
 
           <div class="form-group">
@@ -402,14 +406,12 @@
         <div v-for="name in filteredConfigNames" :key="name" class="config-item"
              :class="{ active: selectedConfigName === name }"
              @click="selectConfig(name)">
-          <div>
-            <div class="name">{{ name }}</div>
-            <div class="detail">{{ configMap[name]?.api_type }} · {{ configMap[name]?.model || '—' }}</div>
-          </div>
-          <div class="actions">
-            <button class="btn btn-sm" @click.stop="cloneConfig(name)">📋</button>
-            <button class="btn btn-sm btn-danger" @click.stop="deleteConfig(name)">🗑️</button>
-          </div>
+          <span class="name" :title="name">{{ name }}</span>
+          <span class="detail">{{ configMap[name]?.api_type }} · {{ configMap[name]?.model || '—' }}</span>
+          <span class="actions">
+            <button class="btn btn-sm" @click.stop="cloneConfig(name)" title="克隆配置">📋</button>
+            <button class="btn btn-sm" @click.stop="deleteConfig(name)" title="删除配置">🗑️</button>
+          </span>
         </div>
       </template>
 
@@ -932,6 +934,28 @@
       </div>
     </div>
   </div>
+
+  <!-- ─── CPA Import Dialog ─── -->
+  <div v-if="showCpaImport" style="position:fixed; inset:0; background:rgba(0,0,0,0.3);
+       display:flex; align-items:center; justify-content:center; z-index:200;">
+    <div class="card" style="width:480px; max-width:90vw;">
+      <div class="card-title">🔄 从 CPA 同步配置</div>
+      <div class="form-group">
+        <label class="form-label">CPA 数据库路径</label>
+        <input v-model="cpaDbPath" placeholder="~/llm_auth_manager/data/credentials.db" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">状态</label>
+        <div style="font-size:12px; color:var(--text-muted);">{{ cpaStatus || '等待导入...' }}</div>
+      </div>
+      <div class="card-actions">
+        <button class="btn btn-primary" @click="syncFromCPA" :disabled="!cpaDbPath || cpaSyncing">
+          {{ cpaSyncing ? '同步中...' : '开始同步' }}
+        </button>
+        <button class="btn" @click="showCpaImport = false">取消</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script type="module">
@@ -1070,6 +1094,49 @@ createApp({
     // Import dialog
     const showImportDialog = ref(false);
     const importText = ref('');
+
+    // CPA sync
+    const showCpaImport = ref(false);
+    const cpaDbPath = ref('');
+    const cpaSyncing = ref(false);
+    const cpaStatus = ref('');
+
+    async function syncFromCPA() {
+      cpaSyncing.value = true;
+      cpaStatus.value = '正在读取 CPA 数据库...';
+      try {
+        const r = await API.post('/api/configs/cpa-sync', { db_path: cpaDbPath.value });
+        if (r.success) {
+          cpaStatus.value = `✅ 同步完成: 导入 ${r.imported} 个配置, 跳过 ${r.skipped} 个`;
+          await loadConfigs();
+          addLog(`🔄 CPA 同步完成: 导入 ${r.imported} 个`);
+        } else {
+          cpaStatus.value = `❌ 同步失败: ${r.error}`;
+          addLog(`🔄 CPA 同步失败: ${r.error}`);
+        }
+      } catch (e) {
+        cpaStatus.value = `❌ 异常: ${e.message}`;
+      } finally {
+        cpaSyncing.value = false;
+      }
+    }
+
+    async function fetchModels() {
+      const cfg = { api_type: editConfig.api_type, base_url: editConfig.base_url, api_key: editConfig.api_key, model: editConfig.model || 'gpt-4o-mini' };
+      try {
+        const r = await API.post('/api/test/models', { config: cfg });
+        if (r.models && r.models.length) {
+          const names = r.models.join('\n');
+          const choice = prompt('可用模型（点击确定选择第一个，或手动输入）:\n' + names, r.models[0]);
+          if (choice) editConfig.model = choice;
+          addLog(`📡 获取模型列表: ${r.models.length} 个`);
+        } else {
+          addLog('📡 未获取到模型列表');
+        }
+      } catch (e) {
+        addLog(`📡 获取模型失败: ${e.message}`);
+      }
+    }
 
     // ─── Load Configs ───
     async function loadConfigs() {
@@ -1691,6 +1758,7 @@ createApp({
       editName, editConfig, selectedConfigName,
       saveConfig, selectConfig, deleteConfig, cloneConfig, applyPreset,
       showImportDialog, importText, importConfigs, exportConfigs,
+      showCpaImport, cpaDbPath, cpaSyncing, cpaStatus, syncFromCPA, fetchModels,
       connectConfigName, connecting, connectionResult, testConnection,
       chatConfigName, chatMessage, chatTemperature, chatMaxTokens, chatTimeout,
       chatStreamMode, chatStreamingContent, sendChatStream,
