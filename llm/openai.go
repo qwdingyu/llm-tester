@@ -72,7 +72,7 @@ func (p *OpenAIProvider) TestConnection(ctx context.Context) *ConnectionResult {
 	// ReadBodyOK 统一处理网络错误和 HTTP 状态码错误
 	body, errMsg := ReadBodyOK(p.config.GetHTTPClient().Do(req))
 	if errMsg != "" {
-		return &ConnectionResult{Success: false, Message: "连接失败: " + errMsg}
+		return &ConnectionResult{Success: false, Message: errMsg}
 	}
 
 	// 解析模型列表
