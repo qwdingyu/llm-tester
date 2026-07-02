@@ -172,6 +172,7 @@
     .card-result th { padding: 6px 8px; }
     .cell-err { color: var(--danger); font-size: 11px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cell-preview { font-size: 11px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
+    .row-best { background: color-mix(in srgb, var(--success) 10%, var(--panel)); }
 
     /* ── Table ── */
     .table-wrap { overflow-x: auto; }
@@ -535,30 +536,39 @@
           </button>
         </div>
 
-        <div v-if="batchResults.length > 0" class="card">
+        <div v-if="batchResults.length > 0" class="card card-result">
           <div class="card-title">
             测试结果
             <span style="font-size:12px; color:var(--text-muted); margin-left:auto;">
               成功 {{ batchSuccess }} / 失败 {{ batchFail }} / 总计 {{ batchResults.length }}
+              <span v-if="batchBest" style="margin-left:8px;">🏆 最快: {{ batchBest }}</span>
             </span>
           </div>
           <div class="table-wrap">
             <table>
               <thead><tr>
-                <th>#</th><th>配置</th><th>状态</th><th>延迟</th><th>内容长度</th><th>错误</th>
+                <th>#</th><th>配置</th><th>状态</th><th>延迟</th><th>vs 最快</th><th>Token 数</th><th>内容/错误</th>
               </tr></thead>
               <tbody>
-                <tr v-for="r in batchResults" :key="r.req_id">
+                <tr v-for="(r, idx) in batchResults" :key="r.req_id"
+                    :class="batchIsFastest(idx) ? 'row-best' : ''">
                   <td>{{ r.req_id + 1 }}</td>
-                  <td>{{ r.model }}</td>
+                  <td>{{ r.model }} <span v-if="batchIsFastest(idx)" style="margin-left:2px;">🏆</span></td>
                   <td>
                     <span class="badge" :class="r.status === 200 ? 'badge-success' : 'badge-danger'">
-                      {{ r.status === 200 ? '成功' : '失败' }}
+                      {{ r.status === 200 ? 'OK' : 'FAIL' }}
                     </span>
                   </td>
-                  <td>{{ r.latency_ms?.toFixed(0) }}ms</td>
-                  <td>{{ r.content_length ?? '—' }}</td>
-                  <td style="color:var(--danger); font-size:12px;">{{ r.error || '' }}</td>
+                  <td>{{ r.latency_ms?.toFixed(0) || '—' }}ms</td>
+                  <td style="font-size:12px;">
+                    <span v-if="batchIsFastest(idx)" style="color:var(--success);">最快</span>
+                    <span v-else style="color:var(--text-muted);">+{{ batchDiffPct(idx) }}%</span>
+                  </td>
+                  <td>{{ r.total_tokens ?? '—' }}</td>
+                  <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px;">
+                    <span v-if="r.error" style="color:var(--danger);" :title="r.error">{{ r.error }}</span>
+                    <span v-else class="cell-preview" :title="r.content_preview">{{ r.content_preview || '—' }}</span>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -1015,6 +1025,27 @@ createApp({
     const batchResults = ref([]);
     const batchSuccess = computed(() => batchResults.value.filter(r => r.status === 200).length);
     const batchFail = computed(() => batchResults.value.filter(r => r.status !== 200).length);
+    // 批量对比分析
+    const batchFastestLatency = computed(() => {
+      const ok = batchResults.value.filter(r => r.status === 200 && r.latency_ms > 0);
+      return ok.length ? Math.min(...ok.map(r => r.latency_ms)) : 0;
+    });
+    const batchBest = computed(() => {
+      const ok = batchResults.value.filter(r => r.status === 200 && r.latency_ms > 0);
+      if (!ok.length) return '';
+      const min = Math.min(...ok.map(r => r.latency_ms));
+      const best = ok.find(r => r.latency_ms === min);
+      return best ? (best.model + ' — ' + min.toFixed(0) + 'ms') : '';
+    });
+    const batchIsFastest = (idx) => {
+      const r = batchResults.value[idx];
+      return r.status === 200 && r.latency_ms > 0 && r.latency_ms === batchFastestLatency.value;
+    };
+    const batchDiffPct = (idx) => {
+      const r = batchResults.value[idx];
+      if (!batchFastestLatency.value || r.status !== 200 || !r.latency_ms) return '—';
+      return ((r.latency_ms - batchFastestLatency.value) / batchFastestLatency.value * 100).toFixed(0);
+    };
 
     // Benchmark
     const benchConfigName = ref('');
@@ -1665,7 +1696,7 @@ createApp({
       chatStreamMode, chatStreamingContent, sendChatStream,
       chatting, chatResponse, sendChat,
       batchConfigs, batchMessage, batchRunning, batchResults,
-      batchSuccess, batchFail, runBatchTest, toggleBatchConfig,
+      batchSuccess, batchFail, batchBest, batchIsFastest, batchDiffPct, runBatchTest, toggleBatchConfig,
       benchConfigName, benchRounds, benchConcurrency, benchMaxTokens,
       benchPrompt, benchTimeout, benchRunning, benchResults, benchReport, runBenchmark,
       burnConfigName, burnRounds, burnMaxTokens, burnTimeout,

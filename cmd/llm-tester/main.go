@@ -554,9 +554,14 @@ func handleBenchmark(c *gin.Context) {
 	provider := llm.NewProvider(toLLMConfig(&req.Config))
 	totalResults := req.Rounds
 	results := make([]concurrent.TestResult, 0, totalResults)
+	ctx := c.Request.Context()
+
+	// 预热：发送 1 次请求消除冷启动影响，结果不计入统计
+	provider.Chat(ctx, &llm.ChatRequest{
+		Model: req.Config.Model, Message: req.Prompt, MaxTokens: req.MaxTokens,
+	})
 
 	// 逐个执行并实时推送，检测客户端断开
-	ctx := c.Request.Context()
 	for i := 0; i < req.Rounds; i++ {
 		// 检查客户端是否已断开
 		if err := ctx.Err(); err != nil {
