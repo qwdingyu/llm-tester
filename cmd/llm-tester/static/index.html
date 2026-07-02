@@ -1475,10 +1475,24 @@ createApp({
       await loadConfigs();
       addLog('🚀 LLM Tester 已启动');
       logTimer = setInterval(pollLogs, 2000);
+
+      // 键盘快捷键: Ctrl+1~6 切换标签页
+      const TABS = ['config', 'connect', 'chat', 'batch', 'benchmark', 'burn'];
+      const onKey = (e) => {
+        if (e.ctrlKey && e.key >= '1' && e.key <= '6') {
+          e.preventDefault();
+          tab.value = TABS[parseInt(e.key) - 1];
+        }
+      };
+      document.addEventListener('keydown', onKey);
+      // 用 cleanup 变量在 onUnmounted 中移除
+      cleanup = () => { document.removeEventListener('keydown', onKey); };
     });
 
+    let cleanup = null;
     onUnmounted(() => {
       if (logTimer) clearInterval(logTimer);
+      if (cleanup) cleanup();
     });
 
     return {

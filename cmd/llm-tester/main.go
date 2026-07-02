@@ -321,10 +321,9 @@ func handleChatStream(c *gin.Context) {
 		httpReq.Header.Set("Authorization", "Bearer "+req.Config.APIKey)
 	}
 	httpReq.Header.Set("Accept", "text/event-stream")
-	httpReq.Header.Set("User-Agent", "Mozilla/5.0")
+	llm.SetCommonHeaders(toLLMConfig(&req.Config), httpReq)
 
-	// 直接用默认 http client，不走 GetHTTPClient 的 Transport 封装
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := toLLMConfig(&req.Config).GetHTTPClient()
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		fmt.Fprintf(c.Writer, "data: {\"type\":\"error\",\"content\":\"%s\"}\n\n", err.Error())
