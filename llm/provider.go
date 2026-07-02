@@ -33,14 +33,26 @@ const (
 
 // ─── 请求/响应数据结构 ──────────────────────────────
 
+// Message 聊天消息（用于多轮对话）
+type Message struct {
+	Role    string `json:"role"`    // user / assistant / system
+	Content string `json:"content"` // 消息内容
+}
+
 // ChatRequest 聊天请求参数
-// 注意: Temperature 和 MaxTokens 在值为 0 时可能被 API 视为"未设置"
-// 从而使用服务端默认值，而非 0
+//
+// 两种消息模式:
+// 1. Message != "" → 单条用户消息（兼容现有调用）
+// 2. Messages != nil → 多条消息构成的对话历史（覆盖 Message）
+//
+// ResponseFormat 用于 JSON 模式测试: "json_object" / ""(默认text)
 type ChatRequest struct {
-	Model       string  `json:"model"`        // 模型名称，如 gpt-4o-mini
-	Message     string  `json:"message"`      // 用户消息内容
-	MaxTokens   int     `json:"max_tokens"`   // 最大输出 token 数
-	Temperature float64 `json:"temperature"`  // 温度参数 (0=确定, 2=随机)
+	Model          string    `json:"model"`                     // 模型名称
+	Message        string    `json:"message,omitempty"`         // 单条用户消息
+	Messages       []Message `json:"messages,omitempty"`        // 多轮消息历史
+	MaxTokens      int       `json:"max_tokens"`                // 最大输出 token 数
+	Temperature    float64   `json:"temperature"`               // 温度参数
+	ResponseFormat string    `json:"response_format,omitempty"` // 响应格式: json_object
 }
 
 // ChatResponse 聊天响应结果
@@ -192,22 +204,36 @@ func (c *Config) GetHTTPClient() *http.Client {
 
 // BuildChatBody 构造标准聊天请求体（所有 Provider 共用）
 //
-// 为什么必须显式设置 stream=false：
-// 大量 OpenAI 兼容 API（包括 unity2、部分自建 API）在未指定 stream 参数时，
-// 默认返回 SSE 流式响应。Go 的 io.ReadAll(resp.Body) 读取流式响应时，
-// 会一直阻塞等待流的结束（SSE 流持续推送事件，永远不会结束），
-// 直到 defaultTimeout 60 秒超时触发 context deadline exceeded。
-//
-// 参见 docs/04_采坑记录_20260701.md → 坑005
-func BuildChatBody(model, message string, temperature float64, maxTokens int) map[string]interface{} {
-	return map[string]interface{}{
-		"model": model,
-		"messages": []map[string]string{
-			{"role": "user", "content": message},
-		},
-		"temperature": temperature,
-		"max_tokens":  maxTokens,
-		"stream":      false, // 强制非流式响应，防止 io.ReadAll 永久阻塞
+// 消息构建规则:
+// - req.Messages 不为空时，直接使用 Messages 作为消息数组
+// - req.Messages 为空时，以 [{"role":"user","content":req.Message}] 作为单条消息
+// - ResponseFormat 不为空时添加 "response_format": {"type": "json_object"}
+// - stream=false 防止 API 默认返回 SSE 流式响应，参见 docs/04_采坑记录.md → 坑005
+func BuildChatBody(model string, req *ChatRequest) map[string]interface{} {
+	body := map[string]interface{}{
+		"model":       model,
+		"messages":    buildMessages(req),
+		"temperature": req.Temperature,
+		"max_tokens":  req.MaxTokens,
+		"stream":      false,
+	}
+	if req.ResponseFormat == "json_object" {
+		body["response_format"] = map[string]string{"type": "json_object"}
+	}
+	return body
+}
+
+// buildMessages 构建 messages 数组，支持单条和多轮消息
+func buildMessages(req *ChatRequest) interface{} {
+	if len(req.Messages) > 0 {
+		msgs := make([]map[string]string, len(req.Messages))
+		for i, m := range req.Messages {
+			msgs[i] = map[string]string{"role": m.Role, "content": m.Content}
+		}
+		return msgs
+	}
+	return []map[string]string{
+		{"role": "user", "content": req.Message},
 	}
 }
 

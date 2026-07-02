@@ -99,7 +99,7 @@ func TestNewProvider_Azure(t *testing.T) {
 }
 
 func TestBuildChatBody(t *testing.T) {
-	body := BuildChatBody("gpt-4", "hello", 0.7, 100)
+	body := BuildChatBody("gpt-4", &ChatRequest{Model: "gpt-4", Message: "hello", Temperature: 0.7, MaxTokens: 100})
 
 	if body["model"] != "gpt-4" {
 		t.Errorf("model = %v", body["model"])

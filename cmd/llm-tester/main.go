@@ -35,6 +35,7 @@ import (
 
 	"github.com/qwdingyu/llm-tester/concurrent"
 	"github.com/qwdingyu/llm-tester/llm"
+	"github.com/qwdingyu/llm-tester/probe"
 	"github.com/qwdingyu/llm-tester/storage"
 )
 
@@ -105,6 +106,7 @@ func main() {
 	r.POST("/api/test/benchmark", handleBenchmark)
 	r.POST("/api/test/burn", handleBurnTest)
 	r.POST("/api/test/models", handleListModels)
+	r.POST("/api/test/suite", handleTestSuite)
 
 	// 日志 API
 	r.GET("/api/logs", handleLogs)
@@ -288,7 +290,9 @@ func handleChatStream(c *gin.Context) {
 	start := time.Now()
 
 	// 构造流式请求体
-	bodyMap := llm.BuildChatBody(req.Config.Model, req.Message, req.Temperature, req.MaxTokens)
+	bodyMap := llm.BuildChatBody(req.Config.Model, &llm.ChatRequest{
+		Message: req.Message, Temperature: req.Temperature, MaxTokens: req.MaxTokens,
+	})
 	bodyMap["stream"] = true // 覆盖为流式
 	bodyBytes, _ := json.Marshal(bodyMap)
 
@@ -753,6 +757,72 @@ func handleListModels(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"models": models})
+}
+
+// handleTestSuite 执行测试套件（多配置 × 多探针）
+func handleTestSuite(c *gin.Context) {
+	var req struct {
+		Targets []struct {
+			Name   string          `json:"name"`
+			Config storage.Config  `json:"config"`
+			ProbeCfg probe.Config  `json:"probe_cfg"`
+		} `json:"targets"`
+		ProbeNames []string `json:"probes"` // 探针名称列表
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求数据: " + err.Error()})
+		return
+	}
+	if len(req.Targets) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "至少需要一个测试目标"})
+		return
+	}
+
+	// 构建 Suite
+	suite := &probe.Suite{}
+	for _, t := range req.Targets {
+		provider := llm.NewProvider(toLLMConfig(&t.Config))
+		if provider == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("配置 %q 创建 Provider 失败", t.Name)})
+			return
+		}
+		suite.Targets = append(suite.Targets, probe.Target{
+			Name:     t.Name,
+			Provider: provider,
+			Config:   t.ProbeCfg,
+		})
+	}
+
+	// 按名称选择探针
+	if len(req.ProbeNames) == 0 {
+		// 默认运行所有已注册探针
+		for _, p := range probe.Registry {
+			suite.Probes = append(suite.Probes, p)
+		}
+	} else {
+		for _, name := range req.ProbeNames {
+			p, ok := probe.Registry[name]
+			if !ok {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("未知探针: %s", name)})
+				return
+			}
+			suite.Probes = append(suite.Probes, p)
+		}
+	}
+
+	// 执行套件
+	result := suite.Run(c.Request.Context())
+
+	// 记录日志
+	for _, item := range result.Items {
+		if item.Error != "" {
+			addLog("📊 [%s][%s] ❌ %s", item.ConfigName, item.ProbeName, item.Error)
+		} else {
+			addLog("📊 [%s][%s] %.0f分 %s", item.ConfigName, item.ProbeName, item.Score, item.Summary)
+		}
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
 // handleLogs 获取日志

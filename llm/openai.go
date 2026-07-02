@@ -121,9 +121,8 @@ func (p *OpenAIProvider) TestConnection(ctx context.Context) *ConnectionResult {
 func (p *OpenAIProvider) Chat(ctx context.Context, req *ChatRequest) *ChatResponse {
 	start := time.Now()
 
-	// 使用共享构建函数（自动包含 stream=false）
-	// 参见 provider.go BuildChatBody 的注释了解 stream=false 的必要性
-	bodyBytes, _ := json.Marshal(BuildChatBody(p.config.Model, req.Message, req.Temperature, req.MaxTokens))
+	// 使用共享构建函数（自动包含 stream=false，支持多轮/JSON模式）
+	bodyBytes, _ := json.Marshal(BuildChatBody(p.config.Model, req))
 
 	path := p.buildEndpointPath()
 	fullURL := trimURL(p.config.BaseURL) + path

@@ -302,6 +302,7 @@
     <div class="tab" :class="{ active: tab === 'batch' }" @click="tab = 'batch'">📊 批量测试</div>
     <div class="tab" :class="{ active: tab === 'benchmark' }" @click="tab = 'benchmark'">📈 基准测试</div>
     <div class="tab" :class="{ active: tab === 'burn' }" @click="tab = 'burn'">🔥 压力测试</div>
+    <div class="tab" :class="{ active: tab === 'suite' }" @click="tab = 'suite'">🔬 测试套件</div>
   </div>
 
   <!-- ─── Main ─── -->
@@ -775,6 +776,105 @@
                 </tr>
               </tbody>
             </table>
+          </div>
+        </div>
+      </template>
+
+      <!-- ═══ 测试套件 ═══ -->
+      <template v-if="tab === 'suite'">
+        <div class="card">
+          <div class="card-title">🔬 测试套件 — 多配置 × 多维度评分</div>
+          <div class="form-group">
+            <label class="form-label">选择配置</label>
+            <div style="display:flex; flex-wrap:wrap; gap:6px;">
+              <label v-for="n in configNames" :key="n"
+                     class="badge" :class="suiteConfigs.includes(n) ? 'badge-success' : 'badge-neutral'"
+                     style="cursor:pointer; padding:4px 12px;" @click="toggleSuiteConfig(n)">
+                {{ n }}
+              </label>
+            </div>
+            <div v-if="configNames.length === 0" style="font-size:12px; color:var(--text-muted); margin-top:4px;">暂无配置，请先在「配置管理」中添加</div>
+          </div>
+          <div class="form-row" style="margin-bottom:8px;">
+            <div class="form-group">
+              <label class="form-label">探针</label>
+              <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                <label v-for="p in suiteProbeList" :key="p.name"
+                       class="badge" :class="suiteProbes.includes(p.name) ? 'badge-info' : 'badge-neutral'"
+                       style="cursor:pointer; padding:4px 12px;" @click="toggleSuiteProbe(p.name)">
+                  {{ p.label }}
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">测试提示词</label>
+              <input v-model="suitePrompt" placeholder="测试消息" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">轮次</label>
+              <input v-model.number="suiteRounds" type="number" min="1" max="50" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">并发</label>
+              <input v-model.number="suiteConcurrency" type="number" min="1" max="20" />
+            </div>
+            <div class="form-group" style="display:flex; align-items:flex-end;">
+              <button class="btn btn-primary" @click="runSuite" :disabled="suiteConfigs.length === 0 || suiteRunning">
+                {{ suiteRunning ? '运行中...' : '▶ 运行测试套件' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="suiteResult" class="card card-result">
+          <div class="card-title">
+            测试结果 · {{ suiteDuration }}
+            <span style="font-size:12px; color:var(--text-muted); margin-left:auto;">{{ suiteResult.items.length }} 项</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>配置</th>
+                <th>探针</th>
+                <th>评分</th>
+                <th>延迟</th>
+                <th>结论</th>
+                <th>详情</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="(item, idx) in suiteResult.items" :key="idx"
+                    :class="item.success ? '' : 'row-err'">
+                  <td><span class="badge badge-neutral">{{ item.config_name }}</span></td>
+                  <td><span class="badge badge-info">{{ item.probe_name }}</span></td>
+                  <td><strong>{{ item.score?.toFixed(0) || '—' }}</strong></td>
+                  <td>{{ item.latency_ms?.toFixed(0) || '—' }}ms</td>
+                  <td class="cell-preview" :title="item.summary">{{ item.summary || item.error || '—' }}</td>
+                  <td>
+                    <button v-if="item.raw" class="btn btn-sm" @click="viewSuiteRaw(idx)" title="查看原始数据">📄</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="suiteResult.comparison" style="margin-top:8px; padding:8px; background:var(--bg); border-radius:var(--radius);">
+            <div style="font-weight:500; font-size:13px; margin-bottom:4px;">🏆 对比分析</div>
+            <div v-for="(best, probe) in suiteResult.comparison.best_of" :key="probe" style="font-size:12px; margin-bottom:2px;">
+              <strong>{{ probe }}</strong>: 最佳 {{ best }}
+              <span v-if="suiteResult.comparison.diff_pct[probe]" style="color:var(--text-muted);">（领先 {{ (suiteResult.comparison.diff_pct[probe] * 100).toFixed(0) }}%）</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 原始数据弹窗 -->
+        <div v-if="suiteRawItem" style="position:fixed; inset:0; background:rgba(0,0,0,0.3); display:flex; align-items:center; justify-content:center; z-index:200;" @click.self="suiteRawItem = null">
+          <div class="card" style="width:600px; max-width:90vw; max-height:80vh; overflow:auto;">
+            <div class="card-title">
+              原始数据
+              <button class="btn btn-sm" style="margin-left:auto;" @click="suiteRawItem = null">关闭</button>
+            </div>
+            <pre style="font-size:11px; white-space:pre-wrap;">{{ JSON.stringify(suiteRawItem, null, 2) }}</pre>
           </div>
         </div>
       </template>
@@ -1393,6 +1493,65 @@ createApp({
       }
     }
 
+    // ─── Suite ───
+    const suiteConfigs = ref([]);
+    const suiteProbes = ref(['benchmark', 'json_mode', 'multi_turn']);
+    const suiteProbeList = [
+      {name:'benchmark', label:'📈 基准测试'},
+      {name:'json_mode', label:'🔷 JSON 模式'},
+      {name:'multi_turn', label:'💬 多轮对话'},
+    ];
+    const suitePrompt = ref('请用一句话介绍人工智能。');
+    const suiteRounds = ref(5);
+    const suiteConcurrency = ref(3);
+    const suiteRunning = ref(false);
+    const suiteResult = ref(null);
+    const suiteRawItem = ref(null);
+    const suiteDuration = ref('');
+
+    function toggleSuiteConfig(name) {
+      const idx = suiteConfigs.value.indexOf(name);
+      if (idx >= 0) suiteConfigs.value.splice(idx, 1);
+      else suiteConfigs.value.push(name);
+    }
+    function toggleSuiteProbe(name) {
+      const idx = suiteProbes.value.indexOf(name);
+      if (idx >= 0) suiteProbes.value.splice(idx, 1);
+      else suiteProbes.value.push(name);
+    }
+    function viewSuiteRaw(idx) {
+      suiteRawItem.value = suiteResult.value?.items?.[idx]?.raw || null;
+    }
+    async function runSuite() {
+      const targets = suiteConfigs.value.map(name => ({
+        name, config: configMap.value.configs[name],
+        probe_cfg: { model: configMap.value.configs[name]?.model,
+          prompt: suitePrompt.value, rounds: suiteRounds.value || 5,
+          concurrency: suiteConcurrency.value || 3, max_tokens: 512 }
+      }));
+      suiteRunning.value = true;
+      suiteResult.value = null;
+      suiteDuration.value = '';
+      statusText.value = '🔬 运行测试套件...';
+      statusType.value = 'info';
+      try {
+        const t = Date.now();
+        const r = await API.post('/api/test/suite', { targets, probes: suiteProbes.value });
+        suiteResult.value = r;
+        suiteDuration.value = `⏱ ${(Date.now() - t) / 1000}s`;
+        const ok = r.items.filter(i => i.success).length;
+        statusText.value = `🔬 套件完成: ${ok}/${r.items.length} 通过`;
+        statusType.value = 'ok';
+        addLog(`🔬 测试套件完成: ${ok}/${r.items.length} 通过`);
+      } catch (e) {
+        statusText.value = `❌ 套件异常: ${e.message}`;
+        statusType.value = 'err';
+        addLog('🔬 测试套件异常: ' + e.message);
+      } finally {
+        suiteRunning.value = false;
+      }
+    }
+
     // ─── Logs ───
     function logClass(line) {
       if (line.includes('❌')) return 'log-error';
@@ -1511,6 +1670,10 @@ createApp({
       benchPrompt, benchTimeout, benchRunning, benchResults, benchReport, runBenchmark,
       burnConfigName, burnRounds, burnMaxTokens, burnTimeout,
       burnRunning, burnResults, burnDone, runBurnTest,
+      suiteConfigs, suiteProbes, suiteProbeList, suitePrompt,
+      suiteRounds, suiteConcurrency, suiteRunning, suiteResult,
+      suiteRawItem, suiteDuration, toggleSuiteConfig, toggleSuiteProbe,
+      viewSuiteRaw, runSuite,
       showAPIKey, statusText, statusClass, logClass, logTime, logMsg, clearLogs, addLog,
       downloadJSON, downloadCSV,
     };

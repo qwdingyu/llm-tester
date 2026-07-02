@@ -89,7 +89,9 @@ func (p *CustomProvider) Chat(ctx context.Context, req *ChatRequest) *ChatRespon
 	url := p.buildURL()
 
 	// 使用共享构建函数（自动包含 stream=false）
-	bodyBytes, _ := json.Marshal(BuildChatBody(p.config.Model, req.Message, req.Temperature, req.MaxTokens))
+	bodyBytes, _ := json.Marshal(BuildChatBody(p.config.Model, &ChatRequest{
+		Model: p.config.Model, Message: req.Message, Temperature: req.Temperature, MaxTokens: req.MaxTokens,
+	}))
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyBytes))
 	if err != nil {
