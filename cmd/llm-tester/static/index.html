@@ -938,18 +938,22 @@
   <!-- ─── CPA Import Dialog ─── -->
   <div v-if="showCpaImport" style="position:fixed; inset:0; background:rgba(0,0,0,0.3);
        display:flex; align-items:center; justify-content:center; z-index:200;">
-    <div class="card" style="width:480px; max-width:90vw;">
+    <div class="card" style="width:460px; max-width:90vw;">
       <div class="card-title">🔄 从 CPA 同步配置</div>
       <div class="form-group">
-        <label class="form-label">CPA 数据库路径</label>
-        <input v-model="cpaDbPath" placeholder="~/llm_auth_manager/data/credentials.db" />
+        <label class="form-label">CPA 地址</label>
+        <input v-model="cpaUrl" placeholder="http://localhost:8712" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">密码（如 CPA 开启登录保护）</label>
+        <input v-model="cpaPassword" type="password" placeholder="可选" />
       </div>
       <div class="form-group">
         <label class="form-label">状态</label>
-        <div style="font-size:12px; color:var(--text-muted);">{{ cpaStatus || '等待导入...' }}</div>
+        <div style="font-size:12px; max-height:100px; overflow-y:auto; white-space:pre-wrap; color:var(--text-muted);">{{ cpaStatus || '填写 CPA 地址后点击同步' }}</div>
       </div>
       <div class="card-actions">
-        <button class="btn btn-primary" @click="syncFromCPA" :disabled="!cpaDbPath || cpaSyncing">
+        <button class="btn btn-primary" @click="syncFromCPA" :disabled="!cpaUrl || cpaSyncing">
           {{ cpaSyncing ? '同步中...' : '开始同步' }}
         </button>
         <button class="btn" @click="showCpaImport = false">取消</button>
@@ -1097,25 +1101,29 @@ createApp({
 
     // CPA sync
     const showCpaImport = ref(false);
-    const cpaDbPath = ref('');
+    const cpaUrl = ref('');
+    const cpaPassword = ref('');
     const cpaSyncing = ref(false);
     const cpaStatus = ref('');
 
     async function syncFromCPA() {
       cpaSyncing.value = true;
-      cpaStatus.value = '正在读取 CPA 数据库...';
+      cpaStatus.value = '正在同步...';
       try {
-        const r = await API.post('/api/configs/cpa-sync', { db_path: cpaDbPath.value });
+        const r = await API.post('/api/configs/cpa-sync', {
+          url: cpaUrl.value,
+          password: cpaPassword.value || '',
+        });
+        cpaStatus.value = r.success
+          ? `✅ 导入 ${r.imported} 个配置`
+          : `❌ ${r.error || '同步失败'}`;
+        if (r.detail) cpaStatus.value += '\n' + r.detail;
         if (r.success) {
-          cpaStatus.value = `✅ 同步完成: 导入 ${r.imported} 个配置, 跳过 ${r.skipped} 个`;
           await loadConfigs();
-          addLog(`🔄 CPA 同步完成: 导入 ${r.imported} 个`);
-        } else {
-          cpaStatus.value = `❌ 同步失败: ${r.error}`;
-          addLog(`🔄 CPA 同步失败: ${r.error}`);
+          addLog(`🔄 CPA 同步: 导入 ${r.imported} 个`);
         }
       } catch (e) {
-        cpaStatus.value = `❌ 异常: ${e.message}`;
+        cpaStatus.value = `❌ ${e.message}`;
       } finally {
         cpaSyncing.value = false;
       }
@@ -1758,7 +1766,7 @@ createApp({
       editName, editConfig, selectedConfigName,
       saveConfig, selectConfig, deleteConfig, cloneConfig, applyPreset,
       showImportDialog, importText, importConfigs, exportConfigs,
-      showCpaImport, cpaDbPath, cpaSyncing, cpaStatus, syncFromCPA, fetchModels,
+      showCpaImport, cpaUrl, cpaPassword, cpaSyncing, cpaStatus, syncFromCPA, fetchModels,
       connectConfigName, connecting, connectionResult, testConnection,
       chatConfigName, chatMessage, chatTemperature, chatMaxTokens, chatTimeout,
       chatStreamMode, chatStreamingContent, sendChatStream,

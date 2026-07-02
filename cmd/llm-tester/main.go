@@ -23,9 +23,8 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -199,103 +198,188 @@ func handleExportConfigs(c *gin.Context) {
 	c.String(http.StatusOK, string(data))
 }
 
-// handleCpaSync 从 CPA 数据库同步配置
+// handleCpaSync 从 CPA Web API 同步配置
+// 调用 CPA 的 GET /api/providers + GET /api/provider/:name/keys 获取配置
 func handleCpaSync(c *gin.Context) {
 	var req struct {
-		DbPath string `json:"db_path"`
+		URL      string `json:"url"`
+		Password string `json:"password"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求数据"})
 		return
 	}
-	if req.DbPath == "" {
-		// 默认路径
-		home, _ := os.UserHomeDir()
-		req.DbPath = filepath.Join(home, "llm_auth_manager", "data", "credentials.db")
-	}
-
-	// 扩展 ~ 为 home 目录
-	if strings.HasPrefix(req.DbPath, "~/") {
-		home, _ := os.UserHomeDir()
-		req.DbPath = filepath.Join(home, req.DbPath[2:])
-	}
-
-	// 使用 sqlite3 CLI 读取数据库
-	// 之所以用 CLI 而非引入 sqlite driver，是为了保持零外部依赖
-	query := `SELECT p.name, p.type, p.base_url, p.default_model, p.disabled,
-		c.content, c.key_preview, c.user_enabled
-		FROM providers p
-		LEFT JOIN credentials c ON c.provider_id = p.id
-		WHERE c.type = 'api_key' AND c.user_enabled = 1 AND p.disabled = 0
-		ORDER BY p.name`
-
-	cmd := exec.Command("sqlite3", "-separator", "|", req.DbPath, query)
-	output, err := cmd.Output()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   fmt.Sprintf("读取 CPA 数据库失败: %v（请确认 sqlite3 已安装）", err),
-		})
+	if req.URL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "CPA 地址不能为空"})
 		return
 	}
 
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	baseURL := strings.TrimRight(req.URL, "/")
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	// 如果需要密码，先登录
+	sessionToken := ""
+	if req.Password != "" {
+		loginBody, _ := json.Marshal(map[string]string{"password": req.Password})
+		loginResp, err := client.Post(baseURL+"/api/auth/login", "application/json", bytes.NewReader(loginBody))
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"success": false, "error": fmt.Sprintf("连接 CPA 失败: %v", err)})
+			return
+		}
+		// 从响应中提取 token（CPA 登录成功返回 cookies）
+		for _, cookie := range loginResp.Cookies() {
+			if cookie.Name == "token" || cookie.Name == "session" {
+				sessionToken = cookie.Value
+			}
+		}
+		loginResp.Body.Close()
+	}
+
+	// 调用 GET /api/providers
+	providersReq, _ := http.NewRequest("GET", baseURL+"/api/providers", nil)
+	if sessionToken != "" {
+		providersReq.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+	}
+	providersResp, err := client.Do(providersReq)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "error": fmt.Sprintf("获取供应商列表失败: %v", err)})
+		return
+	}
+	defer providersResp.Body.Close()
+
+	if providersResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(providersResp.Body)
+		c.JSON(http.StatusOK, gin.H{"success": false, "error": fmt.Sprintf("CPA 返回 %d: %s", providersResp.StatusCode, string(body))})
+		return
+	}
+
+	var providersResult struct {
+		Success bool        `json:"success"`
+		Data    []cpaProvider `json:"data"`
+	}
+	if err := json.NewDecoder(providersResp.Body).Decode(&providersResult); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "error": "解析供应商列表失败: " + err.Error()})
+		return
+	}
+
+	if !providersResult.Success {
+		c.JSON(http.StatusOK, gin.H{"success": false, "error": "CPA 返回失败"})
+		return
+	}
+
 	imported := 0
 	skipped := 0
+	var details []string
 
-	for _, line := range lines {
-		parts := strings.Split(line, "|")
-		if len(parts) < 5 {
-			continue
-		}
-		name := strings.TrimSpace(parts[0])
-		apiType := strings.TrimSpace(parts[1])
-		baseURL := strings.TrimSpace(parts[2])
-		defaultModel := strings.TrimSpace(parts[3])
-		// parts[4] = disabled (already filtered by query)
-		apiKey := ""
-		if len(parts) >= 7 {
-			apiKey = strings.TrimSpace(parts[5])
-		}
-
-		if name == "" || baseURL == "" {
+	// 遍历每个供应商
+	for _, p := range providersResult.Data {
+		if p.Disabled || p.BaseURL == "" {
 			skipped++
 			continue
 		}
 
-		// 使用 CPA 提供的 API 类型，否则尝试从 base_url 推断
+		// 已存在则跳过
+		if store.Get(p.Name) != nil {
+			skipped++
+			continue
+		}
+
+		// 获取该供应商的 API Key
+		keysReq, _ := http.NewRequest("GET", baseURL+"/api/provider/"+url.PathEscape(p.Name)+"/keys", nil)
+		if sessionToken != "" {
+			keysReq.AddCookie(&http.Cookie{Name: "token", Value: sessionToken})
+		}
+		keysResp, err := client.Do(keysReq)
+		if err != nil {
+			details = append(details, fmt.Sprintf("⚠️ %s: 获取 Key 失败 %v", p.Name, err))
+			skipped++
+			continue
+		}
+
+		if keysResp.StatusCode != http.StatusOK {
+			keysResp.Body.Close()
+			skipped++
+			continue
+		}
+
+		var keysResult struct {
+			Success bool          `json:"success"`
+			Data    cpaKeysData   `json:"data"`
+		}
+		if err := json.NewDecoder(keysResp.Body).Decode(&keysResult); err != nil {
+			keysResp.Body.Close()
+			skipped++
+			continue
+		}
+		keysResp.Body.Close()
+
+		if !keysResult.Success || len(keysResult.Data.Keys) == 0 {
+			skipped++
+			continue
+		}
+
+		// 取第一个启用的 Key
+		firstKey := keysResult.Data.Keys[0]
+		if !firstKey.Enabled {
+			skipped++
+			continue
+		}
+
+		apiType := p.Type
 		if apiType == "" {
 			apiType = "openai"
 		}
 
-		// 已存在的配置跳过
-		if store.Get(name) != nil {
-			skipped++
-			continue
-		}
-
 		cfg := &storage.Config{
-			Name:    name,
+			Name:    p.Name,
 			APIType: apiType,
-			BaseURL: baseURL,
-			APIKey:  apiKey,
-			Model:   defaultModel,
+			BaseURL: p.BaseURL,
+			APIKey:  firstKey.APIKey,
+			Model:   p.DefaultModel,
 		}
 
-		if err := store.Save(name, cfg); err != nil {
-			addLog("⚠️ CPA 同步跳过 %s: %v", name, err)
+		// 保存时跳过已存在的（防并发冲突）
+		if err := store.Save(p.Name, cfg); err != nil {
+			details = append(details, fmt.Sprintf("⚠️ %s: 保存失败 %v", p.Name, err))
 			skipped++
 			continue
 		}
 		imported++
+		details = append(details, fmt.Sprintf("✅ %s: %s", p.Name, truncateStr(firstKey.KeyPreview, 20)))
 	}
 
-	addLog("🔄 CPA 同步完成: 导入 %d 个, 跳过 %d 个", imported, skipped)
+	addLog("🔄 CPA 同步: 导入 %d 个, 跳过 %d 个", imported, skipped)
 	c.JSON(http.StatusOK, gin.H{
 		"success":  true,
 		"imported": imported,
 		"skipped":  skipped,
+		"detail":   strings.Join(details, "\n"),
 	})
+}
+
+type cpaProvider struct {
+	Name         string `json:"name"`
+	Type         string `json:"type"`
+	BaseURL      string `json:"base_url"`
+	DefaultModel string `json:"default_model"`
+	Disabled     bool   `json:"disabled"`
+}
+
+type cpaKeysData struct {
+	Keys []cpaKey `json:"keys"`
+}
+
+type cpaKey struct {
+	APIKey      string `json:"api_key"`
+	KeyPreview  string `json:"key_preview"`
+	Enabled     bool   `json:"enabled"`
+}
+
+func truncateStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 // handleTestConnection 测试连接
